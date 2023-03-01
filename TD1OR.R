@@ -21,3 +21,18 @@ persp3D(x,y,z,
         )
 plotrgl(lighting = TRUE, smooth = TRUE,fill=z)
 rglwidget()
+
+
+#plot des fonctions de l'exo 4
+f=function(x,y){
+  return ((3*x+2*y)^4)
+}
+x=y=seq(-10,10)
+z=outer(x,y,f)
+persp3D(x,y,z,main="",colvar=z,
+        zlab="value of function",clab=c("Values","Numbers"),
+        ticktype="detailed",nticks=1,
+        theta=45,phi=45
+)
+plotrgl(lighting = TRUE, smooth = TRUE,fill=z)
+rglwidget()
