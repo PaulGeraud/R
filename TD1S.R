@@ -1,7 +1,14 @@
 rm(list=ls())
+install.packages("plot3D")
+install.packages("rgl")
+install.packages("plot3Drgl")
 setwd("D:/R/datasets")
 library(tidyverse)
 library(matlib)
+library(plot3D)
+library(rgl)
+library(plot3Drgl)
+
 #----------------------------------------------------------------------------------------------------------------------
 #Ex 1
 n=4
@@ -30,6 +37,8 @@ n=100
 p=0.75
 Pval83=1-pbinom(83,n,p)
 Pval79=1-pbinom(79,n,p)
+PvalBilat59=2*(1-pbinom(59,100,0.5))
+PvalBilat61=2*(1-pbinom(61,100,0.5))
 
 x1=c(rep(1,79),rep(0,21))
 t.test(x1,mu=0.75,alternative="two.sided")
@@ -45,4 +54,11 @@ plot(x,y,type="l",main="FdR empirique")
 data.frame(x,y)%>%
   ggplot(aes(x,y))+geom_area(fill="white",col="black")+
   theme_classic()+
-  labs(title="FdR d'une loi binomiale n=4 p=1/2")
+  labs(title="FdR de la loi empirique")
+
+real=c(0.66,1.05,1.92,3.51)
+mu=mean(real)
+sigmaSq=var(real)
+sigmaSqNC=sigmaSq*3/4
+
+
