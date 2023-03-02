@@ -33,17 +33,22 @@ data.frame(xq,yq)%>%
   scale_x_continuous(breaks = seq(0,1,0.0625),limits=c(0,1))
 
 #N=93414
+#test unilatéral H0 p=3/4 vs H1 p>3/4
 n=100
 p=0.75
-Pval83=1-pbinom(83,n,p)
-Pval79=1-pbinom(79,n,p)
-PvalBilat59=2*(1-pbinom(59,100,0.5))
-PvalBilat61=2*(1-pbinom(61,100,0.5))
+Pval83=1-pbinom(82,n,p)#83-1
+binom.test(x=83,n,p,alternative="greater")
+Pval79=1-pbinom(78,n,p)#79-1
+binom.test(x=79,n=100,p=0.75,alternative="greater")
+#test bilatéral H0 p=1/2 vs H1 p!=1/2
+n=100
+p=0.5
+PvalBilat59=2*(1-pbinom(58,100,0.5))#59-1
+binom.test(x=59,n,p,alternative = "two.sided")
+PvalBilat61=2*(1-pbinom(60,100,0.5))#61-1
+binom.test(x=61,n,p,alternative = "two.sided")
 
-x1=c(rep(1,79),rep(0,21))
-t.test(x1,mu=0.75,alternative="two.sided")
-x2=c(rep(1,83),rep(0,17))
-t.test(x2,mu=0.75,alternative="two.sided")
+
 
 #------------------------------------------------------------------------------------------------------------------------------------
 #Ex 2
@@ -60,5 +65,9 @@ real=c(0.66,1.05,1.92,3.51)
 mu=mean(real)
 sigmaSq=var(real)
 sigmaSqNC=sigmaSq*3/4
-
+#---------------------------------------------------------------------------------------------------------------------------------
+#Exo à part
+lot=c(392,396,386,389,388,387,403,397,401,391,400,402,394,406,406,400)
+m=mean(lot)
+s=sd(lot)
 
