@@ -54,20 +54,31 @@ binom.test(x=61,n,p,alternative = "two.sided")
 #Ex 2
 x=c(-1,0.659,0.66,1.049,1.05,1.919,1.92,3.509,3.51,4)
 y=c(0,0,0.25,0.25,0.5,0.5,0.75,0.75,1,1)
-plot(x,y,type="l",main="FdR empirique")
-
-data.frame(x,y)%>%
-  ggplot(aes(x,y))+geom_area(fill="white",col="black")+
-  theme_classic()+
-  labs(title="FdR de la loi empirique")
-
 real=c(0.66,1.05,1.92,3.51)
 mu=mean(real)
-sigmaSq=var(real)
+sigmaSq=sd(real)
 sigmaSqNC=sigmaSq*3/4
+plot(x,y,type="l",main="FdR empirique")
+
+df=data.frame(x,y)%>%
+  mutate(xN=seq(-1,4,length.out=10))
+colors=c("Empirique"="black","Normale"="red")
+df%>%
+  ggplot()+
+  geom_area(aes(x,y,color="Empirique"),fill="white")+
+  stat_function(aes(x,color="Normale"),fun=function(x) pnorm(x,mean=mu,sd=sigmaSq))+
+  theme_classic()+
+  labs(title="FdR de la loi empirique",color="Legend")+
+  scale_color_manual(values=colors)
+
+
+K1=max(0.25-pnorm(0.66,mean=mu,sd=sigmaSq),pnorm(0.66,mean=mu,sd=sigmaSq))
+K2=max(0.5-pnorm(1.05,mean=mu,sd=sigmaSq),pnorm(1.05,mean=mu,sd=sigmaSq)-0.25)
+K3=max(0.75-pnorm(1.92,mean=mu,sd=sigmaSq),pnorm(1.92,mean=mu,sd=sigmaSq)-0.5)
+K4=max(1-pnorm(3.51,mean=mu,sd=sigmaSq),pnorm(3.51,mean=mu,sd=sigmaSq)-0.75)
+KS=max(K1,K2,K3,K4)
 #---------------------------------------------------------------------------------------------------------------------------------
 #Exo à part
 lot=c(392,396,386,389,388,387,403,397,401,391,400,402,394,406,406,400)
 m=mean(lot)
 s=sd(lot)
-
