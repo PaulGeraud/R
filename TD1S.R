@@ -22,7 +22,7 @@ plot(x,y,type="l",main="FdR d'une loi binomiale n=4 p=1/2")
 plot(xq,yq,cex=0.7)
 #avec ggplot
 data.frame(x,y)%>%
-  ggplot(aes(x,y))+geom_area(fill="white",col="black")+
+  ggplot(aes(x,y))+geom_line(col="black")+
   theme_classic()+
   labs(title="FdR d'une loi binomiale n=4 p=1/2")
 
@@ -65,7 +65,7 @@ df=data.frame(x,y)%>%
 colors=c("Empirique"="black","Normale"="red")
 df%>%
   ggplot()+
-  geom_area(aes(x,y,color="Empirique"),fill="white")+
+  geom_line(aes(x,y,color="Empirique"))+
   stat_function(aes(x,color="Normale"),fun=function(x) pnorm(x,mean=mu,sd=sigmaSq))+
   theme_classic()+
   labs(title="FdR de la loi empirique",color="Legend")+
@@ -82,3 +82,4 @@ KS=max(K1,K2,K3,K4)
 lot=c(392,396,386,389,388,387,403,397,401,391,400,402,394,406,406,400)
 m=mean(lot)
 s=sd(lot)
+
