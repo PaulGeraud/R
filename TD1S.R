@@ -56,30 +56,40 @@ x=c(-1,0.659,0.66,1.049,1.05,1.919,1.92,3.509,3.51,4)
 y=c(0,0,0.25,0.25,0.5,0.5,0.75,0.75,1,1)
 real=c(0.66,1.05,1.92,3.51)
 mu=mean(real)
+lambda=1/mu
 sigmaSq=sd(real)
 sigmaSqNC=sigmaSq*3/4
 plot(x,y,type="l",main="FdR empirique")
 
-df=data.frame(x,y)%>%
-  mutate(xN=seq(-1,4,length.out=10))
-colors=c("Empirique"="black","Normale"="red")
+df=data.frame(x,y)
+colors=c("Empirique"="black","Normale"="red","Exponentielle"="blue")
 df%>%
   ggplot()+
   geom_line(aes(x,y,color="Empirique"))+
   stat_function(aes(x,color="Normale"),fun=function(x) pnorm(x,mean=mu,sd=sigmaSq))+
+  stat_function(aes(x,color="Exponentielle"),fun=function(x) pexp(x,rate=lambda))+
   theme_classic()+
-  labs(title="FdR de la loi empirique",color="Legend")+
+  labs(title="FdR de la loi empirique et comparaison aux FdR usuelles",color="Legend")+
   scale_color_manual(values=colors)
 
-
+#Kolmogorov-Smirnov avec loi normales
 K1=max(0.25-pnorm(0.66,mean=mu,sd=sigmaSq),pnorm(0.66,mean=mu,sd=sigmaSq))
 K2=max(0.5-pnorm(1.05,mean=mu,sd=sigmaSq),pnorm(1.05,mean=mu,sd=sigmaSq)-0.25)
 K3=max(0.75-pnorm(1.92,mean=mu,sd=sigmaSq),pnorm(1.92,mean=mu,sd=sigmaSq)-0.5)
 K4=max(1-pnorm(3.51,mean=mu,sd=sigmaSq),pnorm(3.51,mean=mu,sd=sigmaSq)-0.75)
 KS=max(K1,K2,K3,K4)
+ks.test(real,"pnorm",mu,sigmaSq)
+#Kolmogorov-Smirnov avec loi exponentielles
+K1=max(0.25-pexp(0.66,rate=lambda),pexp(0.66,rate=lambda))
+K2=max(0.5-pexp(1.05,rate=lambda),pexp(1.05,rate=lambda)-0.25)
+K3=max(0.75-pexp(1.92,rate=lambda),pexp(1.92,rate=lambda)-0.5)
+K4=max(1-pexp(3.51,rate=lambda),pexp(3.51,rate=lambda)-0.75)
+KS=max(K1,K2,K3,K4)
+ks.test(real,"pexp",lambda)
 #---------------------------------------------------------------------------------------------------------------------------------
 #Exo à part
 lot=c(392,396,386,389,388,387,403,397,401,391,400,402,394,406,406,400)
 m=mean(lot)
 s=sd(lot)
+
 
