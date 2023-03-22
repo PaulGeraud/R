@@ -90,11 +90,15 @@ N=1000#number of points
 x=runif(N,-1,1)
 y=runif(N,-1,1)
 df<-data.frame(x,y)%>%
-  mutate(norm=x^2+y^2)
+  mutate(norm=x^2+y^2)%>%
+  mutate(couleur=ifelse(x^2+y^2<1,"red","blue")) #tentative un peu flopesque
 df%>% #avec packages
   ggplot(aes(x,y))+geom_circle(aes(x0 = 0,y0=0,r=1))+geom_point(aes(colour=cut(norm,c(0,1,Inf))))+scale_color_manual(name="norm",values=c("(0,1]"="red",
                                                                                                                                           "(1,Inf]"="blue"),
                                                                                                                      labels=c("Inside circle","Outside circle"))+
+  theme_classic()
+df%>% #version plus simple mais les couleurs sont pas bonnes
+  ggplot(aes(x,y))+geom_circle(aes(x0 = 0,y0=0,r=1))+geom_point(aes(colour=ifelse(x^2+y^2<1,"red","blue")))+
   theme_classic()
 
 #sans package
@@ -102,16 +106,39 @@ t=seq(-pi,pi,0.01)
 plot(cos(t),sin(t),type="l")
 
 couleur=ifelse(x^2+y^2<1,"red","blue")
-points(x,y,col=couleur)
+points(x,y,col=couleur,pch=20)
 
 
 
-
+couleur=ifelse(x^2+y^2<1,"red","blue")
 
 
 InCircle=sum(df$norm<1)
 #OutCircle=N-InCircle
 PiMC=4*InCircle/N
+#tracé des erreurs, on va utiliser une échelle logarithmique de base 2 par
+I=2^seq(1,20,0.1) #intéressant comme manière de déclarer
+Err=rep(0,length(I))
+k=0
+for(n in I)
+{
+  X=runif(n,-1,1)
+  Y=runif(n,-1,1)
+  Est=4*mean(X^2+Y^2<=1) # le mean fait l'équivalent du sum/n
+  Err[k]=abs(Est-pi)
+  k=k+1
+}
+plot(I,Err)
+plot(log(I),log(Err))
+
+Err.lm=lm(log(Err)~log(I)) #ça marche pas
+print(Err.lm$coefficients)
+abline(Err.lm,col="red")
+#log(Err)=0.5*log(n) où n ets le nombre de points
+#Err 1/racine(n)
+#Vitesse de convergence en 1/sqrt(n) (c'est pas incroyable)
+
+
 #estimation hypersphère dimension 5
 N=10^6 #nombre de points N^5 tirages à réaliser
 a=runif(N,-1,1)
@@ -263,5 +290,4 @@ VG=Vectorize(GVect)
 
 
 
- 
 
