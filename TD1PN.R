@@ -150,15 +150,26 @@ df2<-data.frame(a,b,c,d,e)%>%
   mutate(norm=a^2+b^2+c^2+d^2+e^2)
 InSphere5=sum(df2$norm<1)
 V5MC=32*InSphere5/N #valeur théorique 5.26379
+#Avec une matrice
+T=runif(5*N,-1,1)
+A=matrix(T,nrow=N,ncol=5) #chaque ligne représente un point de R^5
+D=apply(A^2,1,sum) #A^2 fait que chaque valeur est mise au carré
+V5MC=2^5*mean(D<=1)
 #-----------------------------------------------------------------------------------------------------------------------------------------------------------
 #Ex 4
-#Un estimateur de l'intégrale est 4x²y
+#Un estimateur de l'intégrale est 4x²y méthode de Monte Carlo
 N=10000
 x=runif(N,0,2)
 y=runif(N,0,2)
 df3<-data.frame(x,y)%>%
   mutate(T=4*x^2*y)
 Est=mean(df3$T) #valeur réelle
+#méthode de rejet
+N=10000
+x=runif(N,0,2)
+y=runif(N,0,2)
+z=runif(N,0,8)
+Est2=32*mean(z<=x^2*y)
 #graphes (non demandé)
 x=seq(0,2,length.out=100)
 y=seq(0,2,length.out=100)
@@ -287,6 +298,8 @@ GVect=function(x,y)
   return (z)
 }
 VG=Vectorize(GVect)
+
+
 
 
 
