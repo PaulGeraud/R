@@ -22,3 +22,9 @@ pval=pt(1.81,df=n-1,lower.tail = FALSE) #probas de la loi de STudent
 #partie2 (association)
 qt(0.05,df=n-1)
 pt(-1.81,df=n-1)
+#---------------------------------------------------------------------------------------------------------------------------------------
+#Ex2
+#e)
+binom.test(12,18,0.5,"greater",0.95)
+#f)
+PVal=1-pbinom(11,18,0.5)
