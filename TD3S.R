@@ -10,6 +10,7 @@ library(plot3D)
 library(rgl)
 library(plot3Drgl)
 library(readr) #library used to import the file
+
 #partie 1 analytique sur un jeu de donnée réduit
 circ=c(36,42,33,39,43,34,37,41,27,30) #x
 ht=c(18.25,19.75,16.5,18.25,19.5,16.25,17.25,19,16.25,17.5) #y
@@ -23,32 +24,27 @@ cxy=cov(circ,ht)*9/10
 
 B1=cxy/vx
 
-B0=mean(ht)-B1*mean(ht)
+B0=my-B1*mx
 
 data2=data.frame(circ,ht)
 plot(data2)
 
-lm(ht~circ) #5
+reg=lm(ht~circ) #5
+summary(reg)
 
-LM=function(x)
-{
-  return (B1*x +B0)
-}
-res=function(y,yp)
-{
-  return ((yp-y)^2)
-}
-
-LM=Vectorize(LM)
-htpred=LM(circ)
-res=Vectorize(res)
-scr=res(ht,htpred)
+htpred=B1*circ+B0
+res=(htpred-ht)^2
+scr=sum(res)
+sct=vy*10
+sce=sum((htpred-my)^2)
+R2=sce/sct
 
 xpred=c(26,35,39)
-ypred=LM(x)
+ypred=B1*xpred+B0
+
+#partie 2
 
 #import eucalyptus
 data <- read_delim("https://regression-avec-r.github.io/donnees/eucalyptus.txt", delim = ";")
 data=data%>%
   select(numero,ht,circ)
-
