@@ -1,0 +1,47 @@
+---
+title: "Time serie Econometrics, TD1"
+author: "Paul Géraud"
+date: "2023-09-24"
+output:
+  pdf_document:
+    keep_tex: true #empeche le pdf de s'ouvrir automatiquement
+    extra_dependencies: ["mathtools","graphics","amssymb","gensymb","amsmath","inputenc","hyperref"]
+    highlight: tango
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+\newcommand{\cov}{\mathrm{Cov}}
+\tableofcontents
+
+\textbf{Liste des packages utilisés}
+
+```{r}
+library(tidyverse)
+library(gridExtra)
+```
+
+\section{Exercice 1 : Etude de séries temporelles élémentaires}
+
+\subsection{Partie 1-a : Etude de bruits blancs gaussiens}
+
+Dans cette première partie, nous allons générer une série temporelle constitué de 1 000 observations \textbf{i.i.d} $\sim \mathcal{N}(0,1.7)$ . Comme repère temporel, nous allons prendre une suite de nombre quelconques. Le code générant cette série est le suivant
+
+```{r, fig.dim=c(8,4)}
+obs=rnorm(1000,0,1.7)
+u=ts(obs,start=0,frequency =1)
+data.frame(Date=time(u),Valeurs=as.vector(u))%>%
+  ggplot(aes(x=Date,y=Valeurs))+geom_line(col='black')+
+  labs(title="Evolution d'un processus bruit blanc gaussien")
+```
+On remarque que la série a un comportement ératique et semble imprévisible. C'était un résultat attendu : chaque observation est identique et indépendante de la précédente. 
+
+La fonction d'autocorrélation d'un processus $(Y_t)_{t \in \mathbb(N)^*}$ est décrit par la relation suivante : 
+$$\forall h\in\mathbb(N),{\rho}_h =\frac{\cov (Y_t , Y_{t-h})}{\sigma_h.\sigma_{t-h}}$$
+Elle décrit la corrélation du processus $(Y_t)$ entre l'instant $t$ et $t-h$ . Si sa valeur est proche de 1 ou -1, cela implique que  $(Y_t)$ est fortement positivement (resp. négativement) corrélé à  $(Y_{t-h})$. Si la valeur est proche de 0, cela implique l'absence de corrélation entre $(Y_t)$ et $(Y_{t-h})$. Par défintion, ${\rho}_0=1$ . On représente graphiquement la fonction d'autocorrélation avec un corrélogramme. Par soucis de lisibilité, on ne le représente que pour les 50 premières valeurs de $h$
+```{r}
+acf(u,plot=TRUE, lag.max=50)
+```
+\textit{Interprétation des résultats}: Les bandes bleues en pointillés correspondent aux bornes de l'intervalle de confiance de significativé de ${\rho}_h$ . Si sa valeur se trouve dans l'intervalle, on peut en conclure que ${\rho}_h$ est statistiquement nul. Ici, à part la première valeur, la majorité des autres valeurs de ${\rho}_h$ se trouvent dans l'intervalle et ce, dès que $h=1$ . Ce résultat est logique car les variables sont indépendantes, d'où la non- corrélation. Ce graphique illustre l'absence de mémoire des bruits blancs gaussiens. 
