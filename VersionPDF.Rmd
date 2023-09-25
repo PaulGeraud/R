@@ -12,6 +12,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+set.seed(1564)
 ```
 \newcommand{\cov}{\mathrm{Cov}}
 \tableofcontents
@@ -21,6 +22,7 @@ knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 ```{r}
 library(tidyverse)
 library(gridExtra)
+
 ```
 
 \section{Exercice 1 : Etude de séries temporelles élémentaires}
@@ -37,11 +39,33 @@ data.frame(Date=time(u),Valeurs=as.vector(u))%>%
   labs(title="Evolution d'un processus bruit blanc gaussien")
 ```
 On remarque que la série a un comportement ératique et semble imprévisible. C'était un résultat attendu : chaque observation est identique et indépendante de la précédente. 
-
-La fonction d'autocorrélation d'un processus $(Y_t)_{t \in \mathbb(N)^*}$ est décrit par la relation suivante : 
+\begin{itemize}
+\item La fonction d'autocorrélation d'un processus $(Y_t)_{t \in \mathbb(N)^*}$ est décrit par la relation suivante : 
 $$\forall h\in\mathbb(N),{\rho}_h =\frac{\cov (Y_t , Y_{t-h})}{\sigma_h.\sigma_{t-h}}$$
 Elle décrit la corrélation du processus $(Y_t)$ entre l'instant $t$ et $t-h$ . Si sa valeur est proche de 1 ou -1, cela implique que  $(Y_t)$ est fortement positivement (resp. négativement) corrélé à  $(Y_{t-h})$. Si la valeur est proche de 0, cela implique l'absence de corrélation entre $(Y_t)$ et $(Y_{t-h})$. Par défintion, ${\rho}_0=1$ . On représente graphiquement la fonction d'autocorrélation avec un corrélogramme. Par soucis de lisibilité, on ne le représente que pour les 50 premières valeurs de $h$
+\end{itemize}
 ```{r}
 acf(u,plot=TRUE, lag.max=50)
 ```
-\textit{Interprétation des résultats}: Les bandes bleues en pointillés correspondent aux bornes de l'intervalle de confiance de significativé de ${\rho}_h$ . Si sa valeur se trouve dans l'intervalle, on peut en conclure que ${\rho}_h$ est statistiquement nul. Ici, à part la première valeur, la majorité des autres valeurs de ${\rho}_h$ se trouvent dans l'intervalle et ce, dès que $h=1$ . Ce résultat est logique car les variables sont indépendantes, d'où la non- corrélation. Ce graphique illustre l'absence de mémoire des bruits blancs gaussiens. 
+
+\textit{Interprétation des résultats}: Les bandes bleues en pointillés correspondent aux bornes de l'intervalle de confiance au seuil de 95\% de significativé de ${\rho}_h$ . Si sa valeur se trouve dans l'intervalle, on peut en conclure que ${\rho}_h$ est statistiquement nul. Ici, à part la première valeur, la majorité des autres valeurs de ${\rho}_h$ se trouvent dans l'intervalle et ce, dès que $h=1$ . Ce résultat est logique car les variables sont indépendantes, d'où la non- corrélation. Ce graphique illustre l'absence de mémoire des bruits blancs gaussiens. 
+\begin{itemize}
+\item Une autre manière d'évaluer les premières autocorrélations est de réaliser le \textbf{test de Ljung-Box}. Ce test statistique permet de trancher entre les deux hypothèse:
+\begin{itemize}
+\item $H_0: \forall i \in [|1,m|], \rho_i=0$
+\item $H_1:$ there is at least a $\rho_m$ that is not null
+\end{itemize}
+La statistique de test est 
+$$Q(m)=n(n+2)\sum_{k=1}^m \frac{\mathaccent "705E{\rho_k}^2}{n-k}$$
+Sous $H_0,Q(m)\sim\chi^2(m)$.
+Pour maximiser la puissance du test, il est recommandé de choisir $m=ln(n)=ln(1000)\approx 7$
+On réalise le test via les commandes intégrés de R:
+\end{itemize}
+```{r}
+Box.test(obs,lag=7,type="Ljung-Box")$p.value
+```
+La p-valeur n'est pas inférieure à 0.05, on ne peut pas rejeter $H_0$ au risque 5\% . On a donc les 7 premières corrélations qui sont statistiquement nulles, on retrouev un résultat similaire que avec le corrélogramme.
+
+\subsection{Partie 1-b : Etude d'une marche aléatoire}
+Un processus stochastique $(y_t)_{t \in \mathbb(N)^*}$ suit une marche aléatoire s'il est décrit par l'équation suivante:
+$$y_t=y_{t-1}+u_t$$ avec $u_t\sim\mathcal{B}\mathcal{B}(0,\sigma_{u})$
