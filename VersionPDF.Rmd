@@ -1,35 +1,42 @@
 ---
-title: "Time serie Econometrics, TD1"
+title: "Time series Econometrics, TD1"
 author: "Paul Géraud"
-date: "2023-09-24"
+date: "15 Octobre 2023"
 output:
   pdf_document:
     keep_tex: true #empeche le pdf de s'ouvrir automatiquement
-    extra_dependencies: ["mathtools","graphics","amssymb","gensymb","amsmath","inputenc","hyperref"]
-    highlight: tango
+    extra_dependencies: ["mathtools","graphics","amssymb","gensymb","amsmath","inputenc","hyperref","bbm","tcolorbox"]
+    highlight: default
     latex_engine: pdflatex
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
-set.seed(1564)
+#Définition de la seed pour avoir le même rapport à chaque génération
+set.seed(1564) 
 ```
 \newcommand{\cov}{\mathrm{Cov}}
+\newcommand{\indep}{\perp \!\!\! \perp}
+\renewcommand{\contentsname}{Table des matières}
 \tableofcontents
 
 \textbf{Liste des packages utilisés}
 
 ```{r}
-library(tidyverse)
-library(gridExtra)
+library(tidyverse) #nettoyer et grapher des dataframe
+library(gridExtra) #permet de mettre plusieurs graphiques ggplot sur une même fenêtre
 
 ```
+\pagebreak
 
 \section{Exercice 1 : Etude de séries temporelles élémentaires}
 
 \subsection{Partie 1-a : Etude de bruits blancs gaussiens}
 
-Dans cette première partie, nous allons générer une série temporelle constitué de 1 000 observations \textbf{i.i.d} $\sim \mathcal{N}(0,1.7)$ . Comme repère temporel, nous allons prendre une suite de nombre quelconques. Le code générant cette série est le suivant
+\subsubsection{Premières analyses}
+
+Dans cette première partie, nous allons générer une série temporelle constitué de 1 000 observations   
+\textbf{i.i.d} $\sim \mathcal{N}(0,1.7)$ . Comme repère temporel, nous allons prendre une suite de nombre quelconques. Le code générant cette série est le suivant:  
 
 ```{r, fig.dim=c(8,4)}
 obs=rnorm(1000,0,1.7)
@@ -39,33 +46,422 @@ data.frame(Date=time(u),Valeurs=as.vector(u))%>%
   labs(title="Evolution d'un processus bruit blanc gaussien")
 ```
 On remarque que la série a un comportement ératique et semble imprévisible. C'était un résultat attendu : chaque observation est identique et indépendante de la précédente. 
+\subsubsection{Etude des corrélations}
 \begin{itemize}
 \item La fonction d'autocorrélation d'un processus $(Y_t)_{t \in \mathbb(N)^*}$ est décrit par la relation suivante : 
 $$\forall h\in\mathbb(N),{\rho}_h =\frac{\cov (Y_t , Y_{t-h})}{\sigma_h.\sigma_{t-h}}$$
-Elle décrit la corrélation du processus $(Y_t)$ entre l'instant $t$ et $t-h$ . Si sa valeur est proche de 1 ou -1, cela implique que  $(Y_t)$ est fortement positivement (resp. négativement) corrélé à  $(Y_{t-h})$. Si la valeur est proche de 0, cela implique l'absence de corrélation entre $(Y_t)$ et $(Y_{t-h})$. Par défintion, ${\rho}_0=1$ . On représente graphiquement la fonction d'autocorrélation avec un corrélogramme. Par soucis de lisibilité, on ne le représente que pour les 50 premières valeurs de $h$
+Elle décrit la corrélation du processus $(Y_t)$ entre l'instant $t$ et $t-h$ . Si sa valeur est proche de 1 ou de -1, cela implique que  $(Y_t)$ est fortement positivement (resp. négativement) corrélé à  $(Y_{t-h})$. Si la valeur est proche de 0, cela implique l'absence de corrélation entre $(Y_t)$ et $(Y_{t-h})$. Par défintion, ${\rho}_0=1$ . On représente graphiquement la fonction d'autocorrélation avec un corrélogramme. Par soucis de lisibilité, on ne le représente que pour les 50 premières valeurs de $h$ (dit autrement, les 50 premiers retards). 
 \end{itemize}
-```{r}
-acf(u,plot=TRUE, lag.max=50)
+\pagebreak
+```{r,echo=FALSE}
+acf(u,plot=TRUE, lag.max=50,main="Autocorrélations d'un bruit blanc gaussien")
 ```
 
-\textit{Interprétation des résultats}: Les bandes bleues en pointillés correspondent aux bornes de l'intervalle de confiance au seuil de 95\% de significativé de ${\rho}_h$ . Si sa valeur se trouve dans l'intervalle, on peut en conclure que ${\rho}_h$ est statistiquement nul. Ici, à part la première valeur, la majorité des autres valeurs de ${\rho}_h$ se trouvent dans l'intervalle et ce, dès que $h=1$ . Ce résultat est logique car les variables sont indépendantes, d'où la non- corrélation. Ce graphique illustre l'absence de mémoire des bruits blancs gaussiens. 
+\textbf{Interprétation des résultats}: Les bandes bleues en pointillés correspondent aux bornes de l'intervalle de confiance au seuil de 95\% de significativé de ${\rho}_h$ . Si la valeur de ${\rho}_h$ se trouve dans l'intervalle, on peut en conclure que ${\rho}_h$ est statistiquement nul. Ici, à part la première valeur, la majorité des autres valeurs de ${\rho}_h$ se trouvent dans l'intervalle et ce, dès que $h=1$ . Ce résultat est logique car les variables sont indépendantes, d'où la non- corrélation. Ce graphique illustre l'absence de mémoire des bruits blancs gaussiens.  
+\textit{Note: }Même si quelques corrélations peuevnt être statistiquement non nulles, le principe de parcimonie suggérant de privilégier des modèles simples, nous impose de les ignorer.
 \begin{itemize}
-\item Une autre manière d'évaluer les premières autocorrélations est de réaliser le \textbf{test de Ljung-Box}. Ce test statistique permet de trancher entre les deux hypothèse:
+\item Une autre manière d'évaluer les premières autocorrélations est de réaliser le \textbf{test statistique de Ljung-Box}. Ce test statistique permet de trancher entre les deux hypothèses suivantes:
 \begin{itemize}
+\begin{tcolorbox}[colback=red!10!white,colframe=red!80!black]
 \item $H_0: \forall i \in [|1,m|], \rho_i=0$
-\item $H_1:$ there is at least a $\rho_m$ that is not null
+\item $H_1: \exists i \in [|1,m|], \rho_i\ne0$
+\end{tcolorbox}
 \end{itemize}
-La statistique de test est 
+La statistique de test est: 
 $$Q(m)=n(n+2)\sum_{k=1}^m \frac{\mathaccent "705E{\rho_k}^2}{n-k}$$
 Sous $H_0,Q(m)\sim\chi^2(m)$.
-Pour maximiser la puissance du test, il est recommandé de choisir $m=ln(n)=ln(1000)\approx 7$
-On réalise le test via les commandes intégrés de R:
+Pour maximiser la puissance du test, il est recommandé de choisir  
+\\$m=ln(n)=ln(1000)\approx 7$. Nous allons ici cependant réaliser ce test pour les 50 premiers retards et grapher les p-valeurs associées au résultat de chaque test. Nous ajoutons également une ligne horizontale pour indiquer le seuil de significativité de 5\%:
 \end{itemize}
+\pagebreak
 ```{r}
-Box.test(obs,lag=7,type="Ljung-Box")$p.value
+lags=c(1:49)
+pvals=rep(0,49)
+for (i in lags)
+{
+  pvals[i]=Box.test(u,lag=i+1,type="Ljung-Box")$p.value
+}
+
+#Réalisations des différents graphiques
+data.frame(MaxLag = lags, PValeurs = pvals)%>%
+  ggplot(aes(x=MaxLag,y=PValeurs))+geom_point(col='green')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")+
+  labs(title="P-Valeurs du test de Ljung-Box pour un bruit blanc gaussien")
 ```
-La p-valeur n'est pas inférieure à 0.05, on ne peut pas rejeter $H_0$ au risque 5\% . On a donc les 7 premières corrélations qui sont statistiquement nulles, on retrouev un résultat similaire que avec le corrélogramme.
+Pours tous les retards, la p-valeur n'est pas inférieure à 0.05, on ne peut donc pas rejeter $H_0$ au risque 5\% . On retrouve un résultat similaire au corrélogramme.
+\pagebreak
 
 \subsection{Partie 1-b : Etude d'une marche aléatoire}
+
+
 Un processus stochastique $(y_t)_{t \in \mathbb(N)^*}$ suit une marche aléatoire s'il est décrit par l'équation suivante:
-$$y_t=y_{t-1}+u_t$$ avec $u_t\sim\mathcal{B}\mathcal{B}(0,\sigma_{u})$
+$$y_t=y_{t-1}+u_t$$ avec $u_t\sim\mathcal{B}\mathcal{B}(0,\sigma_{u})$.  
+\textit{Remarque: La marche aléatoire peut être vu comme un processus AR(1) avec $\phi_1=1$, nous reviendrons sur ce constat plus tard}
+\subsubsection{Premières analyses}
+En reprenant les bruits blanc générés dans la partie précedente, nous pouvons générer la marche aléatoire à l'aide de la fonction \textit{cumsum} :  
+```{r}
+#génération de la marche aléatoire
+RW=cumsum(obs)
+RW=ts(RW,start=0,freq=1)
+
+#graphe de la série temporelle
+data.frame(Date=time(RW),Valeur=as.vector(RW))%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='black')+
+  labs(title="Evolution d'un processus marche aléatoire")
+```
+On peut voir que le comportement de la série a bien divergé du point de départ qui était 0.  
+On peut également se demander si la distribution de cette loi est gaussienne. A priori, ce n'est pas le cas car on peut observer graphiquement une forte dépendance par rapport aux valeurs précédentes. Faisons une estimation de la densité par la méthode du kernel pour confirmer cette intuition :  
+```{r}
+data.frame(Date=time(RW),Valeur=as.vector(RW))%>%
+  ggplot(aes(x=Valeur))+geom_density(col='blue')+
+  labs(title="Estimation de la densité d'une marche aléatoire")
+```
+\textbf{Interprétation des résultats}: On observe clairement que la densité estimée n'est pas gaussienne car il y a un \textit{lepto-curtic} à gauche, c'est à dire que une partie importante de la distribution se trouve dans la queue de la loi (on parle de loi de probabilité à queue lourde).  
+Si la marche aléatoire représentait le cours d'une action, les lepto-curtic représenteraient alors les crashs de cette dernière.
+\subsubsection{Etude des corrélations}
+De même que pour le bruit blanc, calculons la fonction d'autocorrélation:
+```{r}
+acf(RW,plot=TRUE, lag.max=50,main="Autocorrélations d'une marche aléatoire")
+```
+\textbf{Interprétation des résultats}: On voit que les 50 pemières autocorrélations sont statistiquement non nulles, ce qui indique une forte persistance de la mémoire du processus marche aléatoire. La fonction d'autocorrélation ne permet donc pas d'identifier ce processus. C'était un résultat attendu car c'est un processus AR et ces derniers ne sont pas identifiables par leurs fonctions d'autocorrélations. De plus, le processus marche aléatoire \textbf{n'est pas stationnaire au sens faible}. En effet, si l'on calcule les racines du polynôme caractéristique retard du processus marche aléatoire, on obtient:
+\begin{equation*}
+\begin{split}
+u_t=y_t-y_{t-1}=y_t(1-L) \Rightarrow 1-x=0 &
+\Rightarrow x=1
+\end{split}
+\end{equation*}
+La racine du polynôme caractéristique est donc égale à 1, or $\lVert x \rVert=1 \le 1$, \textbf{la condition de faible stationnarité du processus AR n'est donc pas vérifiée}. Cela se traduit par une augmentation de la variance de la marche aléatoire au cours du temps, c'est facilement observable sur le premier graphique.  
+On peut également réaliser le test de Ljung-Box pour tester la significativé des autocorrélations:  
+```{r,echo=FALSE}
+lags=c(1:49)
+pvals=rep(0,49)
+for (i in lags)
+{
+  pvals[i]=Box.test(RW,lag=i+1,type="Ljung-Box")$p.value
+}
+
+#Réalisations des différents graphiques
+data.frame(MaxLag = lags, PValeurs = pvals)%>%
+  ggplot(aes(x=MaxLag,y=PValeurs))+geom_point(col='green')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")+
+  ylim(0,0.05)+ labs(title="P-Valeurs du test de Ljung-Box pour une marche aléatoire")
+```
+Ici, on obtient systématiquement des p-valeurs significatives, nous amenant à rejeter $H_0$ pour tous les retards.
+\textit{Bonus : } Comme c'est un processus AR, on sait que l'on devrait pouvoir identifier ce dernier avec la fonction d'autocorrélation partielle. Son corrélogramme est le suivant:  
+```{r,echo=FALSE}
+pacf(RW,plot=TRUE, lag.max=50,main="Autocorrélations partielles d'une marche aléatoire")
+```
+\textbf{Interprétation des résultats}: On observe alors que la première autocorrélation partielle est significative et que les suivantes ne le sont pas. Ce résultat permet donc de bien identifier un processus AR(1), ce qui donne un résultat cohérent avec l'équation du processus marche aléatoire.
+
+\section{Exercice 2 : Etude du cours de différentes actions du CAC40}
+
+Dans cette partie, il est demandé de réaliser des graphiques pour conduire une analyse sur les cours des actions de Hermès et de Sanofi. Nous allons importer dans un premier temps le jeu de données \textit{cac40.csv} :  
+```{r}
+#emplacement du jeu de données. Dépendamment de l'installation, il peut être nécéssaire de changer
+#le chemin d'accès
+setwd("D:/R/TD1TSE")
+CAC40=read.csv("cac40.csv", header = TRUE, sep = ";",fill = TRUE)
+
+#Visualisation des 5 premières lignes et des 6 premières colonnes du jeu de données
+head(CAC40[1:6],n=5)
+```
+On remarque que le jeu de données à besoin de quelques modifications pour être exploitable. Ces modifications sont :
+\pagebreak
+\begin{itemize}
+
+\item La colonne Name correspond surement aux dates, cependant le format n'a pas été conservé. En supposant que le fichier provient d'un Excel, on peut facilement la mettre au format adéquat (sur Excel, la date de référence =0 est le 01/01/1960). Il faudrait également lui donner un nom plus explicite.
+\item On ne s'intérèsse que aux cours des actions de Hermès et de Sanofi, on peut donc se débarasser des autres colonnes. Le nom de la colonne Hermès n'est en outre pas adéquat, il faudrait la renommer.
+\item Pour faire des calculs pertinents, nous allons avoir besoin de calculer les rendements (daily return) de ces différentes actions. Le rendement $r_Y(t)$ d'une action $Y$ à un instant $t$ est donné par la formule $r_Y(t)=\frac{Y_t - Y_{t-1}}{Y_{t-1}}$ . Pour obtenir la valeur de $Y_{t-1}$, nous utiliserons la fonction \textit{lag}. Pour faire une analyse plus approfondie, nous aurons également besoin des rendements élevés au carré.
+\end{itemize}
+Il est facile de faire ces modifications à l'aide des fonctions du package \textit{dplyr}. Le code correspondant est le suivant :  
+```{r}
+CAC40=CAC40%>%
+  mutate(Name=as.Date(Name,origin='1900/01/01'))%>% #Mise des dates format 'YYYY/MM/DD'
+  rename(DATE=Name,HERMES=`HERMES.INTL.`)%>% #renommer les colonnes Name et Hermes
+  select(DATE,HERMES,SANOFI)%>% #Selection des colonnes Date, Hermes et Sanofi
+  mutate(DR_HERMES=(HERMES-lag(HERMES))/lag(HERMES))%>% #Calculs des rendements de Hermes
+  mutate(DR_SANOFI=(SANOFI-lag(SANOFI))/lag(SANOFI))%>% #Calculs des rendements de Sanofi
+  mutate(DR_HERMES_SQ=DR_HERMES^2)%>% #Calculs des rendements au carré de Hermes
+  mutate(DR_SANOFI_SQ=DR_SANOFI^2) #Calculs des rendements au carré de Sanofi
+
+#Visualisation des 5 premières lignes du jeu de données après modifications
+head(CAC40,n=5,keepnums=FALSE)
+```
+Ces modifications étant réalisés, nous pouvons donc commencer l'analyse. Nous pouvons voir que les données récoltés s'étendent de Janvier 2016 à Janvier 2023. A titre indicatif, les courbes de Hermès sont en rouge et celles de Sanofi en bleu.  
+Voici le graphe de l'évolution du cours des actions de ces deux entreprises:  
+
+```{r}
+p1=CAC40%>%
+  ggplot(aes(x=DATE,y=HERMES))+geom_line(col='red')+labs(title="Evolution du cours des actions de Hermès entre 2016 et 2023",y="Valeur en €",x='Temps')
+
+p2=CAC40%>%
+  ggplot(aes(x=DATE,y=SANOFI))+geom_line(col='blue')+labs(title="Evolution du cours des actions de Sanofi entre 2016 et 2023",y="Valeur en €",x='Temps')
+
+grid.arrange(p1,p2,nrow=2,ncol=1)
+```
+\textbf{Interprétation des résultats}: On remarque que les courbes de ces deux actifs ont des dynamiques différentes.  
+On peut se demander si l'on trouve plus de similitudes en graphant les rendements :  
+
+```{r,echo=FALSE,fig.dim=c(8,4)}
+p1=CAC40%>%
+  ggplot(aes(x=DATE,y=DR_HERMES))+geom_line(col='red')+labs(title="Evolution du rendement des actions de Hermès entre 2016 et 2023",y="Rendement",x='Temps')
+
+p2=CAC40%>%
+  ggplot(aes(x=DATE,y=DR_SANOFI))+geom_line(col='blue')+labs(title="Evolution du rendement des actions de Sanofi entre 2016 et 2023",y="Rendement",x='Temps')
+
+grid.arrange(p1,p2,nrow=2,ncol=1)
+```
+\textbf{Interprétation des résultats}: Les graphiques ont une forme similaire avec des rendements qui semblent plus ou moins centrés autour de 0, cependant ce n'est pas évident de conclure juste avec ces graphiques. Les courbes de rendement rappelent néanmoins la courbe du bruit blanc gaussien étudié précedemment. On peut donc se demander si ces rendements sont distribués selon une loi normale. Pour ce faire, nous allons estimer les densités et tracer des graphiques quantile-quantile pour chaque actif:  
+
+```{r}
+#Densité des rendements de Hermes et Sanofi
+p3=CAC40%>%
+  ggplot(aes(x=DR_HERMES))+geom_density(col='red')+
+  labs(title='Densité rendements Hermès',x='DR_Hermes',y="densité")
+
+p4=CAC40%>%
+  ggplot(aes(x=DR_SANOFI))+geom_density(col='blue')+
+  labs(title='Densité rendements Sanofi',x='DR_Sanofi',y="densité")
+
+#QQPlot des rendements de Sanofi et de Hermes
+
+#coefficient de la la ligne des quantiles théorique de la N(0,1)
+aH=sd(CAC40$DR_HERMES,na.rm=TRUE)
+bH=mean(CAC40$DR_HERMES,na.rm=TRUE)
+#quantiles + ligne de reference pour Hermes
+p5=CAC40%>%
+  ggplot(aes(sample=DR_HERMES))+stat_qq(col='red')+
+  geom_abline(intercept=bH,slope=aH,col='black')+
+  labs(title='QQplot rendements Hermès',x='théorique',y="mesuré")
+
+#idem avec Sanofi
+aS=sd(CAC40$DR_SANOFI,na.rm=TRUE)
+bS=mean(CAC40$DR_SANOFI,na.rm=TRUE)
+p6=CAC40%>%
+  ggplot(aes(sample=DR_SANOFI))+stat_qq(col='blue')+
+  geom_abline(intercept=bS,slope=aS,col='black')+
+  labs(title='QQplot rendements Sanofi',x='théorique',y="mesuré")
+
+#Visualisation sur une même fenêtre des quatre graphiques
+grid.arrange(p3,p4,p5,p6,nrow=2,ncol=2)
+```
+\textbf{Interprétation des résultats}: Les densités ont une une forme qui rappelent une courbe en cloche, cependant on peut observer de petites lepto-curtic de part et d'autre de la cloche. Cette impréssion est vérifié sur les graphiques quantiles-quantiles: les valeurs moyennes collent bien aux quantiles de la loi normale mais ce n'est plus vérifié pour les valeurs extrêmes. Tout comme la marche aléatoire, la loi normale sous-estime les valeurs extrêmes car c'est une loi à queue fine.  
+Poursuivons notre analyse en étudiant les autocovariances et autocorrélations:  
+
+```{r,fig.dim=c(8,8)}
+par(mfrow = c(2, 2))
+#covariances
+acf(CAC40$DR_HERMES,plot=TRUE,type="covariance", lag.max=50,na.action=na.pass,main="Covariance des rendements de Hermès")
+acf(CAC40$DR_SANOFI,plot=TRUE,type="covariance", lag.max=50,na.action=na.pass,main="Covariance des rendements de Sanofi")
+#corrélations
+acf(CAC40$DR_HERMES,plot=TRUE, lag.max=50,na.action=na.pass,main="Corrélation des rendements de Hermès")
+acf(CAC40$DR_SANOFI,plot=TRUE, lag.max=50,na.action=na.pass,main="Corrélation des rendements de Sanofi")
+```
+\textbf{Interprétation des résultats}: On retrouve des corrélogrammes similaires à ceux observés pour un bruit blanc, suggérant un processus avec une faible mémoire. Poussons l'analyse un peu plus loin avec un test de Ljung-Box pour une variété de retards différents. On va représenter les résultats en graphant les p-valeurs:  
+```{r,fig.dim=c(8,5),echo=FALSE}
+#Calculs des p-valeurs pour les 50 premiers retards
+lags=c(1:50)
+pvalsHermes=rep(0,50)
+pvalsSanofi=rep(0,50)
+for (i in lags)
+{
+  pvalsHermes[i]=Box.test(CAC40$DR_HERMES,lag=i,type="Ljung-Box")$p.value
+  pvalsSanofi[i]=Box.test(CAC40$DR_HERMES,lag=i,type="Ljung-Box")$p.value
+}
+
+#Réalisations des différents graphiques
+p7=data.frame(MaxLag = lags, PVal = pvalsHermes)%>%
+  ggplot(aes(x=MaxLag,y=PVal))+geom_point(col='red')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")
+
+p8=data.frame(MaxLag = lags, PVal = pvalsSanofi)%>%
+  ggplot(aes(x=MaxLag,y=PVal))+geom_point(col='blue')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")
+
+grid.arrange(p7,p8,nrow=1,ncol=2)
+```
+\textbf{Interprétation des résultats}: Les premières p-valeurs du test de Ljung-Box sont non significatives, puis il y a une décroissance et oscillations des p-valeurs: certaines sont au dessus du seuil de 5\%, d'autres en dessous. Cependant, en vertu du principe de parcimonie ainsi que de la puissance du test qui dimniue lorsque le nombre de retards considérés augmente, ces graphiques nous donnent l'idée que l'on ne peut pas rejeter l'hypothèse d'absence de corrélations. On retrouve des résultats similaires par rapport au corrélogramme.  
+Maintenant, nous allons refaire les mêmes calculs avec le carré des rendements:  
+```{r,fig.dim=c(8,8),echo=FALSE}
+par(mfrow = c(2, 2))
+#covariances
+acf(CAC40$DR_HERMES_SQ,plot=TRUE,type="covariance", lag.max=50,na.action=na.pass,main="Covariance des rendements au carré Hermès")
+acf(CAC40$DR_SANOFI_SQ,plot=TRUE,type="covariance", lag.max=50,na.action=na.pass,main="Covariance des rendements au carré Sanofi")
+#corrélations
+acf(CAC40$DR_HERMES_SQ,plot=TRUE, lag.max=50,na.action=na.pass,main="Corrélations des rendements au carré Hermès")
+acf(CAC40$DR_SANOFI_SQ,plot=TRUE, lag.max=50,na.action=na.pass,main="Corrélations des rendements au carré Sanofi")
+```
+Et le test de Ljung-Box:  
+```{r,fig.dim=c(8,5),echo=FALSE}
+#Calculs des p-valeurs pour les 50 premiers retards
+lags=c(1:50)
+pvalsHermes=rep(0,50)
+pvalsSanofi=rep(0,50)
+for (i in lags)
+{
+  pvalsHermes[i]=Box.test(CAC40$DR_HERMES_SQ,lag=i,type="Ljung-Box")$p.value
+  pvalsSanofi[i]=Box.test(CAC40$DR_SANOFI_SQ,lag=i,type="Ljung-Box")$p.value
+}
+
+#Réalisations des différents graphiques
+p9=data.frame(MaxLag = lags, PVal = pvalsHermes)%>%
+  ggplot(aes(x=MaxLag,y=PVal))+geom_point(col='red')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")
+
+p10=data.frame(MaxLag = lags, PVal = pvalsSanofi)%>%
+  ggplot(aes(x=MaxLag,y=PVal))+geom_point(col='blue')+
+  geom_abline(intercept=0.05,slope=0,col='black',linetype="dashed")
+
+grid.arrange(p9,p10,nrow=1,ncol=2)
+```
+\textbf{Interprétation des résultats}: On retrouve alors des autocorrélations bien plus marqués que pour les rendements simples. Pour Hermès, les 50 premiers retards semblent tous significatifs. Pour Sanofi, cela est moins marqué mais les 10 premiers retards sont significatifs. Si l'on regarde les résultats du test de Ljung-Box, on obtient des p-valeurs extrèmement faibles, nous ammenant à rejeter systématiquement l'hypothèse de non corrélation. On observe donc que les rendements au carré possèdent une mémoire.  
+\textbf{En conclusion}, les rendements simples montrent une faible persistance de la mémoire. Cette mémoire est cependant bien plus marquée si les rendements sont élevés au carré. 
+
+\section{Exercice 3: Estimations de paramètres de lois de probabilités par la méthode du maximum de vraissemblance}
+
+\subsection{Estimation d'une loi exponentielle}
+\textit{Rappel}: $X\sim \mathcal{E}(\theta),\theta>0$ si $X$ admet pour densité la fonction: 
+$$f_X(x)=\theta e^{-\theta x} \mathbbm{1}_{\mathbb{R^*_+}}(x) $$
+Soit maintenant $(X_n)_{n\in \mathbb{N}^*}$ une suite i.i.d suivant une loi exponentielle de paramètre $\theta$. Comme montré dans le TD, on a donc la log-vraissemblance associée à cette suite :
+$$ l(x_1,...,x_n,\theta)=n\ln\theta -\sum_{k=1}^n{x_i\theta}$$
+La valeur de $\theta$ qui maximise cette fonction correspond à $\mathaccent "705E{\theta}$, l'estimateur de $\theta$ par la méthode du maximum de vraissemblance.  
+Commençons par générer un échantillon aléatoire de 10 000 valeurs distribués selon une loi exponentielle de paramètre $\theta=2.8$.
+```{r}
+  ESample=rexp(10000,2.8)
+```
+Nous allons essayer de retrouver cette valeur de $\theta$ en utilisant deux approches.
+\subsubsection{Estimation numérique via R}
+Nous allons réecrire la log-vraissemblance sur R, puis nous allons utiliser la fonction \textit{optim} pour trouver la valeur de l'estimateur. Cette fonction cherchant de base à minimiser la fonction, nous allons inverser le signe de la log-vraissemblance pour obtenir l'arg max: 
+```{r}
+#implémentation de l'opposée de la log-vraissemblance
+log_likelihood_exp=function(x,lambda)
+{
+  n=length(x)
+  return(-n*log(lambda)+sum(x*lambda))
+}
+
+#Optimisation
+val=optim(par=2,fn=log_likelihood_exp,x=ESample,method='Brent',lower=0,upper=100)$par
+cat("theta=",val)
+```
+On obtient $\mathaccent "705E{\theta}\approx2.8=\theta$, soit une valeur cohérente qui semble bien estimer $\theta$.
+\subsubsection{Calcul théorique du maximum de vraissemblance}
+La fonction de log-vraissemblance étant relativement simple, on peut donc résoudre ce problème d'optimisation manuellement sans faire appel à un solveur.
+\begin{itemize}
+\item \textbf{Condition nécessaire d'ordre 1 (CN1)}, on cherche le point critique de 
+$ l(x_1,...,x_n,\theta)$ par rapport à $\theta$:
+\begin{equation}
+\begin{split}
+& \frac{\partial l}{\partial \theta}(x_1,...,x_n,\theta) =0 \Rightarrow \frac{n}{\theta}-\sum_{i=1}^n{x_i}=0 \\
+& \Rightarrow \theta=\frac{n}{\sum_{i=1}^n{x_i}} \\ 
+& \boxed{\Rightarrow \theta=\frac{1}{\overline{x}_n}}
+\end{split}
+\end{equation}
+\item \textbf{Condition suffisante d'ordre 2 (CS2)} On s'assure que la dérivée seconde de $ l(x_1,...,x_n,\theta)$
+par rapport à $\theta$ est bien négative pour le point critique:
+\begin{equation}
+\begin{split}
+& \frac{\partial^2 l}{\partial \theta^2}(x_1,...,x_n,\theta) = \frac{-n}{\theta^2} \\
+& \Rightarrow \frac{\partial^2 l(x_1,...,x_n,\frac{1}{\overline{x}_n})}{\partial \theta^2}=\frac{-n}{\frac{n^2}{\sum_{i=1}^n{x_i}}} \\
+& =\frac{-\sum_{i=1}^n{x_i}}{n}<0
+\end{split}
+\end{equation}
+\end{itemize}
+
+Donc $l(x_1,...,x_n,\theta)$ admet bien un maximum $\mathaccent "705E{\theta}$ en $\frac{1}{\overline{x}_n}$.  
+Maintenant que l'on possède l'expression mathématique de l'estimateur, on peut facilement calculer ce dernier: 
+```{r}
+theta=1/mean(ESample)
+cat("theta=",theta)
+```
+On retrouve exactement la même valeur que celle obtenue par l'estimation numérique, montrant ainsi l'équivalence des deux méthodes.
+
+\subsection{Estimation d'une loi normale}
+\textit{Rappel}: $X\sim \mathcal{N}((\mu,\sigma^2)),\mu \in \mathbb{R},\sigma>0$ si $X$ admet pour densité la fonction: 
+$$f_X(x)=\frac{1}{\sqrt{2\pi}\sigma} e^{-\frac{(x-\mu)^2}{2\sigma^2}}  $$
+Pour estimer les paramètres $(\mu,\sigma)$, on va utiliser les deux mêmes méthodes que pour la loi exponentielle.  
+Soit $(X_n)_{n\in \mathbb{N}^*}$ une suite i.i.d suivant une loi normale de paramètre $(\mu,\sigma^2)$. Calculons la fonction de vraissemblance puis la log-vraissemblance associée à cette suite:
+\begin{equation}
+L(x_1,...,x_n,\mu,\sigma)\overset{\indep}{=}\prod_{i=1}^nf_{X_i}(x_i)\overset{i.d}{=} \prod_{i=1}^n \frac{1}{\sqrt{2\pi}\sigma} e^{-\frac{(x_i-\mu)^2}{2\sigma^2}}=\left(\frac{1}{\sqrt{2\pi}\sigma}\right)^n\exp\left(-\frac{1}{2\sigma^2}\sum_{i=1}^n\left[x_i^2-2x_i\mu+\mu^2\right]\right)
+\end{equation}
+
+On en déduit la log-vraissemblance:
+\begin{equation}
+l(x_1,...,x_n,\mu,\sigma)=\ln(L(x_1,...,x_n,\mu,\sigma))=-n\ln(\sqrt{2\pi})-n\ln(\sigma)-\frac{1}{2\sigma^2}\left(\sum_{i=1}^n\left[x_i^2-2x_i\mu+\mu^2\right]\right)
+\end{equation}
+La valeur du vecteur $(\mu,\sigma)$ qui maximise cette fonction correspond à $(\mathaccent "705E{\mu},\mathaccent "705E{\sigma})$.  
+Générons un échantillon aléatoire de 10 000 valeurs distribués selon une loi normale de paramètres  
+$\mu=-1,\sigma=2.1$.
+```{r}
+  NSample=rnorm(10000,-1,2.1)
+```
+\subsubsection{Estimation numérique via R}
+On réecrit la log-vraissemblance sous R en prenant son opposée pour pouvoir la maximiser avec \textit{optim}. Il n'est pas nécessaire de réecrire le terme $n\ln(\sqrt{2\pi})$ car ce dernier ne dépend pas de $(\mu,\sigma)$
+```{r}
+#implémentation de l'opposée de la log-vraissemblance
+log_likelihood_norm=function(x,param)
+{
+  mu=param[1]
+  sigma=param[2]
+  n=length(x)
+  return(n*log(sigma)+1/(2*sigma^2)*sum((x-mu)^2))
+}
+
+#Optimisation
+vals=optim(par=c(2,3),fn=log_likelihood_norm,x=NSample)$par
+cat("mu=",vals[1],", sigma=",vals[2])
+```
+On obtient $(\mathaccent "705E{\mu},\mathaccent "705E{\sigma})\approx(-1,2.1)=(\mu,\sigma)$. Les valeurs obtenues sont cohérentes.
+\subsubsection{Calcul théorique du maximum de vraissemblance}
+Il est également possible de résoudre exactement ce problème, le calcul est un peu plus complexe car $f_X: \mathbb{R}^2\rightarrow\mathbb{R}$
+\begin{itemize}
+\item \textbf{CN1}, on recherche le point critique de la log-vraissemblance, vérifiant le système suivant:
+\begin{equation*}
+  \begin{cases}
+  \frac{\partial l}{\partial \mu}(x_1,...,x_n,\mu,\sigma) =0 \\
+  \frac{\partial l}{\partial \sigma}(x_1,...,x_n,\mu,\sigma) =0
+  \end{cases}
+\end{equation*}
+
+\begin{align}
+&\frac{\partial l}{\partial \mu}(x_1,...,x_n,\mu,\sigma)=\frac{1}{\sigma^2}\left[\sum_{i=1}^n(x_i-\mu)\right]=\frac{n(\overline{x}_n-\mu)}{\sigma^2}=0\\ &\boxed{\Rightarrow \mu=\overline{x}_n} \\
+&\frac{\partial l}{\partial \sigma}(x_1,...,x_n,\mu,\sigma)=\frac{-n}{\sigma}+\frac{1}{\sigma^3}\sum_{i=1}^n(x_i-\mu)^2=0 \Rightarrow n\sigma^2=\sum_{i=1}^n(x_i-\mu)^2 \\ &\boxed{\overset{(6)}{\Rightarrow} \sigma=\sqrt{\frac{1}{n}\sum_{i=1}^n(x_i-\mu)^2}=S_n}
+\end{align}
+
+$l(x_1,...,x_n,\mu,\sigma)$ admet donc un point critique en $(\overline{x}_n,S_n)$.  
+
+\item \textbf{CS2}, il est nécessaire d'étudier la matrice hessienne de $l$ en $(\overline{x}_n,S_n)$.
+
+\begin{align*}
+&\frac{\partial^2 l}{\partial \mu^2}(x_1,...,x_n,\mu,\sigma)=\frac{-n}{\sigma^2} \\
+&\frac{\partial^2 l}{\partial \mu \partial \sigma}(x_1,...,x_n,\mu,\sigma)=\frac{\partial^2 l}{\partial \sigma \partial \mu}(x_1,...,x_n,\mu,\sigma)=\frac{-2n(\overline{x}_n-\mu)}{\sigma^3} \\
+&\frac{\partial^2 l}{\partial \sigma^2}(x_1,...,x_n,\mu,\sigma)=\frac{n}{\sigma^2}+\frac{3}{\sigma^4\sum_{i=1}^n(x_i-\mu)^2}
+\end{align*}
+Donc: 
+\begin{equation*}
+\mathcal{H}_l(\mu,\sigma)=\begin{pmatrix}
+\frac{\partial^2 l}{\partial \mu^2} & \frac{\partial^2 l}{\partial \mu \partial \sigma} \\
+\frac{\partial^2 l}{\partial \mu \partial \sigma} & \frac{\partial^2 l}{\partial \sigma^2}
+\end{pmatrix}
+\end{equation*}
+Le déterminant de le hessienne évalué en $(\overline{x_n},S_n)$ donne:
+\begin{align}
+\det{\left(\mathcal{H}_l(\overline{x}_n,S_n)\right)}&=
+\begin{vmatrix}
+\frac{-n}{{S_n}^2} & 0 \\
+0 & \frac{n}{{S_n}^2}+\frac{3\sum_{i=1}^n(x_i-\overline{x}_n)^2}{{S_n}^4}
+\end{vmatrix}
+\\
+&\boxed{=\frac{-1}{{S_n}^2}\left[n\left(n+3\sum_{i=1}^n(x_i-\overline{x}_n)^2\right)\right] <0}
+\end{align}
+La matrice hessienne est donc définie négative. $l$ admet bien un maximum en $(\overline{x}_n,S_n)$.    
+On remarque que l'estimateur de $\sigma$ donné par le maximum de vraissemblance est un estimateur biaisé de la variance. Il est souhaitable de le remplacer par sa version non biaisée : ${S_n}^*=\sigma=\sqrt{\frac{1}{n-1}\sum_{i=1}^n(x_i-\mu)^2}$. On calcule donc les valeurs de ces estimateurs:
+\end{itemize}
+```{r}
+mu=mean(NSample)
+sigma=sd(NSample)
+sigmaBiased=sqrt((10000-1)/10000)*sigma
+cat("mu=",mu,", sigma=",sigma,", sigma biaisé=",sigmaBiased)
+```
+On ne retrouve pas exactement les mêmes résultats que avec le solveur mais ils sont extrêmements proches, montrant ainsi que les deux méthodes donnent des résultats équivalents.
+
