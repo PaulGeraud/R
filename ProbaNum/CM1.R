@@ -20,7 +20,7 @@ df[c(1,2),]
 df[c(1,2),c(1,3)]
 df$r2[df$r1>2]
 
-#définir une fonction
+#dÃ©finir une fonction
 
 f=function(x)
 {
@@ -28,8 +28,8 @@ f=function(x)
 }
 f(c(1,2,3))
 
-#fonctions liées au proba
-#fct de répartition
+#fonctions liÃ©es au proba
+#fct de rÃ©partition
 punif(2,0,3) #P(X<2)
 pnorm(1,0,1)
 pbinom(3,10,0.5)
@@ -37,7 +37,7 @@ pbinom(3,10,0.5)
 qnorm(0.975,0,1)
 #densite
 dnorm(1,0,1)
-#generer echantillon aléatoire
+#generer echantillon alÃ©atoire
 runif(1000,0,1)
 hist(runif(1000,0,1))
 T=rnorm(10000,0,1)
@@ -59,7 +59,7 @@ plot(X,Y,type="l",col=15)
 par(new=TRUE)
 plot(X,X^3,type="l",col="blue",axes=FALSE,xlab="",ylab="")
 
-#integrale par la méthode des rectangles
+#integrale par la mÃ©thode des rectangles
 
 rectangle=function(f,a,b,n)
 {
