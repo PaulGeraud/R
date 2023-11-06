@@ -1,0 +1,261 @@
+---
+title: "Time series Econometrics, TD2"
+author: "Paul Géraud"
+date: "7 Novembre 2023"
+output:
+  pdf_document:
+    keep_tex: true
+    extra_dependencies: ["mathtools","graphics","amssymb","gensymb","amsmath","inputenc","hyperref","bbm","tcolorbox"]
+    highlight: default
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+#Définition de la seed pour avoir le même rapport à chaque génération
+set.seed(41564) 
+```
+\renewcommand{\contentsname}{Table des matières:}
+\tableofcontents
+
+\textbf{Liste des packages utilisés:}
+
+```{r}
+library(tidyverse) #nettoyer et grapher des dataframe
+library(gridExtra) #permet de mettre plusieurs graphiques ggplot sur une même fenêtre
+library(ggforce) #donne une fonction pour tracer un cercle de centre et rayon donné
+```
+Générons un bruit blanc gaussien qui sera utilisé pour tout l'exercice:
+```{r}
+N=1000
+BBG=rnorm(N)
+```
+
+\section{Exercice 1 : Etude d'un AR(2)}
+
+Soit le processus AR(2) suivant:
+$$y_t=0.6y_{t-1}+0.2y_{t-2}+u_t, (u_t)_{t \in\mathbb{N}} \sim \mathcal{N}(0,1) $$
+On reconnnait bien un processus AR avec comme coefficients $(\phi_1,\phi_2)=(0.6,0.2)$.
+\pagebreak
+\subsection{Création et tracé:}
+On va générer ce procesus sur R puis grapher ce dernier:
+```{r}
+Y_ar=rep(0,N)
+for (i in 3:N)
+{
+  Y_ar[i]=0.6*Y_ar[i-1]+0.2*Y_ar[i-2]+BBG[i]
+}
+
+#plot de la série
+p1=data.frame(Date=c(1:N),Valeur=Y_ar)%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='black')+
+  labs(title="Evolution d'un AR(2) au cours du temps")
+p1
+```
+On observe un graphe assez ératique qui semble centré autour de 0 et qui ne change pas de dynamique au cours du temps, on pourrait donc s'attendre à ce que le processus soit stationnaire. 
+\subsection{Etudes des covariances:}
+```{r,fig.dim=c(8,10),fig.align = 'center'}
+par(mfrow = c(3, 1))
+acf(Y_ar,type="covariance", lag.max=24,
+    main="Fonction d'autocovariance de l'AR")
+acf(Y_ar,type="correlation", lag.max=24,
+    main="Fonction d'autocorrélation de l'AR")
+acf(Y_ar,type="partial", lag.max=24,
+    main="Fonction d'autocorrélation partielle de l'AR")
+```
+On observe des résultats attendus pour un processus AR(2), c'est à dire une convergence des fonctions d'autocovariances et d'autocorrélations vers 0. La fonction d'autocorrélation partielle n'est significative que pour les deux premiers retards, identifiant bien un processus AR d'ordre 2.  
+On peut confirmer ces résultats avec un test de Ljung-Box:
+```{r}
+Box.test(Y_ar, lag = 24, type = "Ljung-Box")
+```
+On rejette donc l'hypothèse d'absence d'autocorrélation au risque $\alpha=5\%$.
+\subsection{Etude de la stationnarité et inversibilité du processus:}
+Le processus est \textbf{inversible} par nature.  
+Pour évaluer la stationnarité, on peut réecrire ce processus avec une écriture en polynôme retard:
+$$\Phi(L)=1-0.6L-0.2L^2$$
+On en déduit ses racines:
+$$\Delta=0.6^2+4*0.2=1.16>0\Rightarrow L=\frac{0.6\pm\sqrt{1.16}}{-0.4}\Rightarrow (L_1,L_2)\approx(1.19,-4.1)$$
+On remarque que $\mid L_1\mid=1.19>1,\mid L_2\mid=4.19>1$. On en déduit que le processus est \textbf{stationnaire}. On peut aussi visualiser ce résultat graphiquement en traçant la position des racines de $\Phi(L)$ dans l'espace des complexes par rapport au cercle unité:
+```{r}
+Roots=polyroot(c(1,-0.6,-0.2))
+
+data.frame(Re=Re(Roots),Im=Im(Roots))%>%
+  ggplot(aes(x=Re,y=Im))+geom_point(col='red',size=3)+
+  geom_circle(aes(x0 = 0,y0=0,r=1),col="black")+
+  geom_hline(yintercept = 0)+geom_vline(xintercept = 0)+
+  xlim(c(-4.5,4.5))+ylim(c(-4.5,4.5))+
+  labs(title="Graphe des racines du polynôme caractéristique par rapport au cercle unité")
+```
+Les racines se situent en dehors du cercle unité, indiquant graphiquement que leurs module est supérieur à 1.  
+\textit{Pour les prochains exercices, on omettra le calcul manuel des racines et l'on se contentera du graphique}.
+
+\section{Exercice 2 : Etude d'un MA(2)}
+
+Soit le processus MA(2) suivant:
+$$y_t=u_t+0.5u_{t-1}+0.3u_{t-2}$$
+On a alors pour coefficients $(\theta_1,\theta_2)=(0.5,0.3)$.
+\subsection{Création et tracé:}
+On va générer ce processus de deux manières:
+\begin{itemize}
+\item Une approche naïve avec une boucle \textit{for}.
+\item Une utilisation de la fonction \textit{arima.sim} qui permet de générer des processus ARIMA. On peut donc s'en servir pour générer un processus MA(2). On utilise l'argument \textit{innov} pour utiliser le même bruit blanc gaussien.
+\end{itemize}
+On va comparer les deux approches en les graphant:
+```{r}
+#avce une loop
+Y_am=rep(0,N)
+Y_am[1]=BBG[1]
+Y_am[2]=BBG[2]
+for (i in 3:N)
+{
+  Y_am[i]=BBG[i]+0.5*BBG[i-1]+0.3*BBG[i-2]
+}
+#avec arima.sim
+arimaTest=arima.sim(n=N,model=list(order=c(0,0,2), ma= c(0.5, 0.3)),innov=BBG)
+
+```
+```{r,fig.dim=c(9,9),fig.align = 'center',echo=FALSE}
+
+#plot des graphiques
+p2=data.frame(Date=c(1:N),Valeur=Y_am)%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='black')+
+  labs(title="Evolution d'un AM(2) au cours du temps")
+
+p3=data.frame(Date=c(1:N),Sim=arimaTest)%>%
+  ggplot(aes(x=Date,y=Sim))+geom_line(col='blue')+
+  labs(title="Evolution d'un AM(2) généré par arima.sim()")
+
+grid.arrange(p2,p3,nrow=2,ncol=1)
+```
+
+On observe naturellement des résultats identiques, montrant l'équivalence des deux méthodes.
+\subsection{Etudes des covariances:}
+```{r,fig.dim=c(8,13),fig.align = 'center',echo=FALSE}
+par(mfrow = c(3, 1))
+acf(Y_am,type="covariance", lag.max=24,
+    main="Fonction d'autocovariance de l'AM")
+acf(Y_am,type="correlation", lag.max=24,
+    main="Fonction d'autocorrélation de l'AM")
+acf(Y_am,type="partial", lag.max=24,
+    main="Fonction d'autocorrélation partielle de l'AM")
+```
+On observe des résultats attendus pour un processus MA(2), c'est à dire que les deux premières auto-corrélations ($\rho_0$ non-inclus) sont statistiquement significatives et les suivantes sont statistiquement nulles. La fonction d'autocorrélation partielle ne donne rien d'intéressant. 
+On peut confirmer ces résultats avec un test de Ljung-Box:
+```{r,echo=FALSE}
+Box.test(Y_am, lag = 24, type = "Ljung-Box")
+```
+On rejette donc l'hypothèse d'absence d'autocorrélation au risque $\alpha=5\%$.
+\subsection{Etude de la stationnarité et inversibilité du processus:}
+Le processus est \textbf{stationnaire} par nature des processus MA.  
+Pour l'inversibilité, il faut étudier les racines du polynôme retard de ce processus, c'est à dire trouver les deux racines de :
+$$\Theta(L)=1+0.5L+0.7L^2$$
+Ce qui donne les résultats graphiques suivants:
+```{r,fig.dim=c(5,5),fig.align = 'center',echo=FALSE}
+Roots_AM=polyroot(c(1,0.5,0.3))
+
+data.frame(Re=Re(Roots_AM),Im=Im(Roots_AM))%>%
+  ggplot(aes(x=Re,y=Im))+geom_point(col='red',size=3)+geom_circle(aes(x0 = 0,y0=0,r=1),col="black")+
+  geom_hline(yintercept = 0)+geom_vline(xintercept = 0)+
+  xlim(c(-2,2))+ylim(c(-2,2))+
+  labs(title="Graphe des racines du polynôme caractéristique par rapport au cercle unité")
+```
+On observe que les racines de $\Theta(L)$ sont en dehors du cercle unité, elles ont donc un module supérieur à 1. On en déduit que le processus est \textbf{inversible}.
+
+\subsection{Bonus:}
+Ces processus étant destinés à être utilisés pour modéliser notamment le cours de divers instruments financiers, on peut se demander comment ces modèles réagissent à des chocs issus du marché. Pour modéliser ces derniers, nous allons altérer notre bruit blanc gaussien à $t=500$, l'on va mettre une valeur improbable pour un évènement généré par une $\mathcal{N}(0,1)$. On va prendre ici $u_{500}=5$.  
+Pour le processus MA, étant donné que il ne dépend que de deux bruits blancs gaussiens et qu'il n'y a pas de mémoire au delà de ça, on s'attend à que il soit fortement perturbé à $t=500,501,502$, puis pour $t>502$, le modèle va reprendre une trajectoire normale. C'est une conséquence de sa stationnarité.  
+Pour le processus AR, étant donné que la valeur précédente est gardé à $t+1$, on peut s'attendre à ce que la perturbation reste un peu. Cependant, comme vu précedemment, ce AR étant stationnaire, on s'attend à ce qu'il reprenne une trajectoire normale. Mathématiquement, on peut s'en convaincre car $\mid \phi_1<1,\mid \phi_2\mid<1$, donc cette valeur extrême va progressivement diminuer jusqu'à atteindre à nouveau des niveaux habituels.  
+Vérifions cette intuition avec les graphiques des cours perturbés et non perturbés:
+```{r,fig.dim=c(8,15),fig.align = 'center'}
+#création du bruit blanc perturbé à t=500
+BBGS=BBG
+BBGS[500]=5
+#création AR perturbé
+Y_arS=rep(0,N)
+for (i in 3:N)
+{
+  Y_arS[i]=0.6*Y_arS[i-1]+0.2*Y_arS[i-2]+BBGS[i]
+}
+#Création AM perturbé
+Y_amS=rep(0,N)
+Y_amS[1]=BBGS[1]
+Y_amS[2]=BBGS[2]
+for (i in 3:N)
+{
+  Y_amS[i]=BBGS[i]+0.5*BBGS[i-1]+0.3*BBGS[i-2]
+}
+
+p4=data.frame(Date=c(1:N),Valeur=Y_arS)%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='blue')+
+  labs(title="Evolution d'un AR(2) perturbé à t=500")
+
+
+p5=data.frame(Date=c(1:N),Valeur=Y_amS)%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='blue')+
+  labs(title="Evolution d'un AM(2) pertubé à t=500")
+
+
+grid.arrange(p1,p4,p2,p5,nrow=4,ncol=1)
+```
+On obtient ainsi les résultats escomptés, c'est à dire une forte perturbation à $t=500$, puis les processus retrouvent rapidement leurs trajectoire de croisière.
+\section{Exercice 3 : Etude d'un ARMA(2,2)}
+Soit le processus ARMA(2,2) suivant:
+$$y_t=0.6y_{t-1}-0.25y_{t-2}+u_t+1.1u_{t-1}-0.28u_{t-2}$$
+On a alors pour la partie MA les coefficients $(\theta_1,\theta_2)=(1.1,-0.28)$, et pour la partie AR $(\phi_1,\phi_2)=(0.6,-0.25)$.
+\subsection{Création et tracé:}
+On génère ce processus avec la fonction \textit{arima.sim}.
+```{r}
+Y_arma = arima.sim(model=list(order=c(2,0,2), ma=c(1.1, -0.28), ar=c(0.6,-0.25)),
+                   n=1000,innov=BBG)
+#plot
+p7=data.frame(Date=c(1:N),Valeur=Y_arma)%>%
+  ggplot(aes(x=Date,y=Valeur))+geom_line(col='black')+
+  labs(title="Evolution d'un ARMA(2,2)")
+p7
+```
+On observe que la série temporelle semble être stationnaire.
+\subsection{Etudes des covariances:}
+```{r,fig.dim=c(8,13),fig.align = 'center',echo=FALSE}
+par(mfrow = c(3, 1))
+acf(Y_arma,type="covariance", lag.max=24,
+    main="Fonction d'autocovariance de l'ARMA")
+acf(Y_arma,type="correlation", lag.max=24,
+    main="Fonction d'autocorrélation de l'ARMA")
+acf(Y_arma,type="partial", lag.max=24,
+    main="Fonction d'autocorrélation partielle de l'ARMA")
+```
+On observe que les auto-covariances, auto-corrélations et auto-corrélations partielles tendent vers 0. Cependant, il est impossible d'inférér l'ordre d'un processus ARMA(p,q) à partir de ces corrélogrammes. On peut cependant conclure que ce processus possède une mémoire persistante, résultat que l'on peut confirmer avec un test de Ljung-Box:
+```{r,echo=FALSE}
+Box.test(Y_arma, lag = 24, type = "Ljung-Box")
+```
+On rejette donc l'hypothèse d'absence d'autocorrélation au risque $\alpha=5\%$.
+\subsection{Etude de la stationnarité et inversibilité du processus:}
+Pour les processus ARMA, il faut étudier l'inversibilité et la stationnarité de ces processus.  
+Pour ce faire, nous allons calculer les racines des polynômes retards. Ces derniers sont égaux à:
+\begin{itemize}
+
+\item Pour la partie MA: $\Theta(L)=1+1.1L-0.28L^2$.
+\item Pour la partie AR: $\Phi(L)=1-0.6L+0.25L^2$.
+
+\end{itemize}
+Ce qui donne les résultats suivants:
+```{r,fig.dim=c(9,5),fig.align = 'center',echo=FALSE}
+Roots_AM=polyroot(c(1,1.1,-0.28))
+Roots_AR=polyroot(c(1,-0.6,0.25))
+
+data.frame(Re=Re(Roots_AM),Im=Im(Roots_AM),ReAR=Re(Roots_AR),ImAR=Im(Roots_AR))%>%
+  ggplot()+geom_point(aes(x=Re,y=Im,color="AM"),size=3)+geom_point(aes(x=ReAR,y=ImAR,color="AR"),size=3)+
+  geom_circle(aes(x0 = 0,y0=0,r=1),col="black")+
+  geom_hline(yintercept = 0)+geom_vline(xintercept = 0)+
+  xlim(c(-2,2))+ylim(c(-2,2))+
+  scale_color_manual(values = c("AM" = "red", "AR" = "blue"), 
+                     labels = c("AM" = "Racines polynôme AM", "AR" = "Racines polynôme AR")) +
+  labs(title = "Graphe des racines du polynôme caractéristique par rapport au cercle unité") +
+  guides(color = guide_legend(title = "Légende"))
+```
+\textit{Note: Une des racines de $\Theta \approx 4.69$ n'a pas été affiché sur le graphique par soucis de lisibilité}.  
+De ce graphique, on peut en tirer les conclusions suivantes:
+\begin{itemize}
+\item Les deux racines de $\Phi$ sont en dehors du cercle unité, leurs module est donc supérieur à 1. On en déduit donc que ce processus ARMA est \textbf{stationnaire}.
+\item Une des deux racines de $\Theta$ est à l'intérieur du cercle unité. Pour cette racine, on en déduit que son module est inférieur ou égal à 1. On en déduit donc que ce processus ARMA  \textbf{n'est pas inversible}.
+\end{itemize}
