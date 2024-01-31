@@ -1,6 +1,8 @@
 #librairies
 library(tidyverse)
 library(lubridate)
+library(plotly)
+library(gridExtra)
 #importer les données
 premium=read.csv("premium.csv",sep=",")
 claims=read.csv("claims.csv",sep=",")
@@ -109,7 +111,7 @@ cat("Le ratio S/P pour les chiens sur la période 2022 est de",round(SPdog, digi
 ByRacePremium=premium%>%
   group_by(pet_race)%>%
   arrange(pet_race,pet_id)%>%
-  summarise(pet_race=first(pet_race),prime_hthc=sum(total_hthc))%>%
+  summarise(pet_race=first(pet_race),prime_hthc=sum(total_hthc),moy_prime=mean(total_hthc))%>%
   ungroup()
 
 #Pour claims, comme la race n'est pas dans le fichier, il faut faire une jointure
@@ -207,3 +209,97 @@ claimsPrevClient=claimsPrev%>%
 summary(claimsPrevClient$sinistralite_tot)
 #50% des clients atteignent le plafond. En admettant que chaque assuré verse 12 primes (ce qui n'est pas le cas, ils en versent en général moins), le montant moyen de la sinistralité
 #>montant moyen de primes. Au global, la garantie ne semble pas rentable et elle rogne sur les bénéfs générés par la partie principale
+
+
+#graphiques
+
+#histogramme de la sinistralité
+
+claims%>%
+  ggplot(aes(x=claims_reimbursed))+geom_histogram(fill="lightblue",color='black',bins=sqrt(nrow(claims)))+
+  labs(title="Histogramme de la sinistralité remboursé par l'assureur",y="frequence",x="Montant remboursé")
+
+#histogramme de la sinistralité totale
+
+claims%>%
+  ggplot(aes(x=paid_by_client))+geom_histogram(fill="lightpink",color='black',bins=sqrt(nrow(claims)))+
+  labs(title="Histogramme de la sinistralité déclaré par le client",y="frequence",x="Montant déclaré")
+
+#pie chart sinistralité par type de de claims
+ByClaimsType=claims%>%
+  arrange(claim_type)%>%
+  group_by(claim_type)%>%
+  summarise(claim_type=first(claim_type),Montant=sum(claims_reimbursed))%>%
+  ungroup()
+
+#version ggplot statique 
+pie1=ByClaimsType%>%
+  ggplot(aes(x="",y=Montant,fill=claim_type))+
+  geom_bar(width=1,stat="identity")+
+  coord_polar(theta="y")+
+  theme_minimal()+
+  labs(title="Proportion de la sinistralité par type de claim")
+
+#version plotly interactif
+pie_chart = plot_ly(
+  labels = ByClaimsType$claim_type,
+  values = ByClaimsType$Montant,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"  # Ajustez la taille du trou au besoin
+)%>%
+  layout(title = "Proportion de la sinistralité par type de claim")
+
+# Affichez le pie chart
+pie_chart
+
+#pie charts primes & sinistralité
+#statiques
+pie2=MergedRace%>%
+  ggplot(aes(x="",y=claims_reimbursed,fill=pet_race))+
+  geom_bar(width=1,stat="identity",col="black")+
+  coord_polar(theta="y")+
+  theme_minimal()+
+  labs(title="Proportion de la sinistralité par race")
+
+pie3=MergedRace%>%
+  ggplot(aes(x="",y=prime_hthc,fill=pet_race))+
+  geom_bar(width=1,stat="identity",col="black")+
+  coord_polar(theta="y")+
+  theme_minimal()+
+  labs(title="Proportion de la prime par race")
+pie2
+x11()
+pie3
+#grid.arrange(pie2,pie3,ncol=2)
+
+#dynamiques
+#prime
+pie_chart2 = plot_ly(
+  labels = MergedRace$pet_race,
+  values = MergedRace$prime_hthc,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la prime par race")
+
+pie_chart2
+#sinistralité
+pie_chart3 = plot_ly(
+  labels = MergedRace$pet_race,
+  values = MergedRace$claims_reimbursed,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la sinistralité par race")
+
+pie_chart3
+
+#prime moyenne par race
+MeanPrem=MergedRace%>%
+  ggplot(aes(x=pet_race,y=moy_prime))+geom_col(color="black",fill="darkblue",alpha=0.7)+
+  coord_flip()+labs(title="Prime moyenne par race",x="",y="Valeur prime moyenne")+theme_classic()
+
+ggplotly(MeanPrem)
