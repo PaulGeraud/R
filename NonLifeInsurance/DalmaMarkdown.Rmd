@@ -1,0 +1,366 @@
+---
+title: "Code R & Graphiques Dalma"
+author: "Paul Géraud, Armand Eyraud, Thomas Bullimore, Tony Liu"
+date: "2024-11-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Ce rapport contient le code R ainsi que différentes visualisations.  
+Librairies utilisées:
+```{r,results='hide',warning=FALSE,message=FALSE}
+#install.packages("tidyverse")
+#install.packages("lubridate")
+#install.packages("plotly")
+
+library(tidyverse)
+library(lubridate)
+library(plotly)
+```
+
+* **tidyverse**, utilisé pour manipuler les données et réaliser des graphiques plus esthétiques que ceux proposés par R de base.
+* **lubridate**, permet de manipuler plus facilement les dates.
+* **plotly**, permet de rendre des graphiques interactifs.
+
+# Préparation de la donnée  
+
+Importation des données
+```{r}
+premium=read.csv("premium.csv",sep=",")
+claims=read.csv("claims.csv",sep=",")
+```
+
+Format des données
+```{r}
+sapply(premium,typeof)
+```
+```{r}
+sapply(claims,typeof)
+```
+On remarque que les dates n'ont pas été convertis dans le format adéquat. De plus, en regardant brièvement le dataset premium, l'on s'est rendu compte qu'il existait des lignes identiques en doublons, nous les avons donc supprimés. Il n'y a avait pas de problèmes de valeurs abérrantes. Enfin, nous avons créer des fourchettes d'âge pour chaque animal assuré, cela sera utile plus tard.
+```{r}
+premium=premium%>%
+  mutate(event_month=ymd(event_month),subscription_date=ymd(subscription_date),subscription_cancelled_date=ymd(subscription_cancelled_date),
+         actual_age=pet_age_at_subscription+floor(as.numeric(difftime(dmy("31/12/2022"),subscription_date , units = "days"))/365),
+         fourchette=cut(actual_age, breaks = c(0,1,3,5,7, 8), labels = c("0-1","2-3","4-5","6-7","8+"), include.lowest = TRUE))%>%
+  distinct()
+
+claims=claims%>%
+  mutate(act_date_month=ymd(act_date_month),claim_creation_month=ymd(claim_creation_month),claim_close_month=ymd(claim_close_month))%>%
+  distinct() #pas nécessaire mais pour la forme
+
+```
+
+# Calculs de statistiques:  
+
+## Nombre de primes payés par un client en moyenne:
+```{r}
+nbr_clients=length(unique(premium$pet_id))
+nbr_primes_clients=table(premium$pet_id)
+nbr_primes_moy=mean(nbr_primes_clients)
+cat("Nombres d'animaux assurés: ",nbr_clients,"\nNombres de primes payés en moyenne: ",round(nbr_primes_moy,2))
+```
+Un client paye donc en moyenne 6.47 moyennes (le client moyen est donc engagé sur une demi année)
+
+## Taux de rétention  
+Pour ce calcul, on s'intérèsse aux nombres d'animaux qui ont souscrits en 2021 et qui sont toujours dans le portefeuille à la fin de 2022.
+```{r}
+#nombre de clients qui ont souscrits avant le 01/2022
+CS=nrow(premium%>%
+          filter(year(subscription_date)<2022)%>%distinct(pet_id))
+#nombre de clients qui ont souscrits avant le 01/2022 et qui sont partis avant le 31/12/2022
+CL=nrow(premium%>%
+          filter(year(subscription_date)<2022,subscription_cancelled_date<dmy("31/12/2022"))%>%
+          distinct(pet_id))
+
+#résultat
+tx_ret=100*(CS-CL)/CS
+cat("Nombre de clients qui ont souscrits en 2021:",CS,"\nLe taux de rétention sur la période 2022 est de", round(tx_ret, digits = 2),"%")
+
+```
+## Etudes de la sinistralité  
+
+### Sinistralité remboursée par l'assureur
+
+#### Quantiles:
+```{r}
+summary(claims$claims_reimbursed)
+```
+
+#### Histogramme
+```{r}
+ggplotly(claims%>%
+  ggplot(aes(x=claims_reimbursed))+geom_histogram(fill="lightblue",color='black',bins=sqrt(nrow(claims)))+
+  labs(title="Histogramme de la sinistralité remboursé par l'assureur",y="frequence",x="Montant remboursé"))
+```
+
+### Sinistralité totale
+
+#### Quantiles
+```{r}
+summary(claims$paid_by_client)
+```
+
+### Histogramme
+```{r}
+ggplotly(claims%>%
+  ggplot(aes(x=paid_by_client))+geom_histogram(fill="lightpink",color='black',bins=sqrt(nrow(claims)))+
+  labs(title="Histogramme de la sinistralité déclaré par le client",y="frequence",x="Montant déclaré"))
+```
+
+
+## Ratios S/P  
+
+Le plus gros du travail est de calculer les S/P. Nous avons réalisé différentes segmentations pour et calculer des S/P dans chacun des cas.
+
+### S/P global:  
+```{r}
+P=sum(premium$total_hthc)
+S=sum(claims$claims_reimbursed)
+SPg=100*S/P
+cat("Le ratio S/P global sur la période 2022 est de",round(SPg, digits = 2),"%")
+```
+### S/P par type d'espèce:  
+```{r}
+unique(premium$pet_type)
+```
+On peut voir que il n'y a ques des chiens ou des chats dans la base (ce qui ne reflète pas l'ensemble des animaux assurés par Dalma)
+```{r}
+#chats
+#On récupère les primes & sinistres uniquement des chats
+premiumCat=premium%>%
+  filter(pet_type=="cat")
+ListCat=unique(premiumCat$pet_id)
+claimsCat=claims%>%
+  filter(pet_id %in% ListCat)
+#calcul du S/P chat
+SPcat=100*sum(claimsCat$claims_reimbursed)/sum(premiumCat$total_hthc)
+
+#chiens
+premiumDog=premium%>%
+  filter(pet_type=="dog")
+ListDog=unique(premiumDog$pet_id)
+claimsDog=claims%>%
+  filter(pet_id %in% ListDog)
+#calcul du S/P chien
+SPdog=100*sum(claimsDog$claims_reimbursed)/sum(premiumDog$total_hthc)
+
+#affichage
+cat("Le ratio S/P pour les chats sur la période 2022 est de",round(SPcat, digits = 2),"%\n")
+cat("Le ratio S/P pour les chiens sur la période 2022 est de",round(SPdog, digits = 2),"%\n")
+```
+### S/P par type de race:  
+On va chercher à produire une segmentation plus complète que celle précédente. On va segmenter cette fois ci par type de race. Le code pour faire cela et calculer les S/P est un plus technique principalement car pour les claims, on n'a pas directement accès aux races des animaux, il est donc nécessaire de joindre des tables. De plus, il faut regrouper les montants des primes & sinistres selon la race.
+```{r}
+#segmentation sur les races 
+#Pour les primes, on regroupe selon les races et on calcule l'ensemble des primes ainsi que la valeur de la prime moyenne pour chaque race
+ByRacePremium=premium%>%
+  group_by(pet_race)%>%
+  arrange(pet_race,pet_id)%>%
+  summarise(pet_race=first(pet_race),prime_hthc=sum(total_hthc),moy_prime=mean(total_hthc))%>%
+  ungroup()
+
+#Pour claims, comme la race n'est pas dans le fichier, il faut faire une jointure selon la variable pet_id
+SimplePremium=premium%>%
+  select(pet_id,pet_race)%>%
+  distinct(pet_id,pet_race)
+
+ClaimsWithRace=merge(claims,SimplePremium,by='pet_id')
+
+#Maintenant que l'on possède les races pour les sinistres, on peut faire la même groupure que avec les primes
+ByRaceClaims=ClaimsWithRace%>%
+  group_by(pet_race)%>%
+  arrange(pet_race,pet_id)%>%
+  summarise(pet_race=first(pet_race),claims_reimbursed=sum(claims_reimbursed))%>%
+  ungroup()
+
+#On termine en fusionnant les primes et sinistres pour chaque race, ce qui permet de calculer facilement le S/P pour chaque race
+MergedRace=merge(ByRaceClaims,ByRacePremium,by="pet_race")%>%
+  mutate(SPrace=100*claims_reimbursed/prime_hthc)
+
+#affichage des différents ratios S/P
+print("Ratio S/P sur la période 2022 pour chaque race:\n")
+for (i in 1:nrow(MergedRace))
+{
+  cat(MergedRace$pet_race[i],": ",round(MergedRace$SPrace[i], digits = 2),"%\n")
+}
+```
+Utilisons également quelques pie charts pour visualiser les primes et sinistres par race:  
+* Primes
+```{r}
+pie_chart2 = plot_ly(
+  labels = MergedRace$pet_race,
+  values = MergedRace$prime_hthc,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la prime par race")
+
+pie_chart2
+```
+* Sinistres
+```{r}
+pie_chart3 = plot_ly(
+  labels = MergedRace$pet_race,
+  values = MergedRace$claims_reimbursed,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la sinistralité par race")
+
+pie_chart3
+```
+#### Bonus:  
+Montant moyenne de la prime par race:
+```{r}
+#prime moyenne par race
+MeanPrem=MergedRace%>%
+  ggplot(aes(x=pet_race,y=moy_prime))+geom_col(color="black",fill="darkblue",alpha=0.7)+
+  coord_flip()+labs(title="Prime moyenne par race",x="",y="Valeur prime moyenne (€)")+theme_classic()
+
+ggplotly(MeanPrem)
+```
+###S/P par fourchette d'âge
+L'âge étant un facteur discriminant & important, il convient de segmenter également selon l'âge. On va procéder en créant des fourchettes d'âge à partir de la date de souscription. Les fourchettes retenues sont les suivantes (borne inf et sup incluses:  
+* Entre 0 et 1 ans
+* Entre 2 et 3 ans
+* Entre 4 et 5 ans
+* Entre 6 et 7 ans
+* 8 ans et plus (à Noter qu'il n'y a pas d'animal agé de plus de 8 ans dans la base de données d'âge plus grands que 8)
+
+Et on rapplique la même méthode que avec les races:
+```{r}
+ByAgePremium=premium%>%
+  group_by(fourchette)%>%
+  arrange(fourchette,pet_id)%>%
+  summarise(fourchette=first(fourchette),prime_hthc=sum(total_hthc),moy_prime=mean(total_hthc))%>%
+  ungroup()
+
+#Pour claims, comme la fourchette d'age n'est pas dans le fichier, il faut faire une jointure
+SimplePremium=premium%>%
+  select(pet_id,fourchette)%>%
+  distinct(pet_id,fourchette)
+
+ClaimsWithAge=merge(claims,SimplePremium,by='pet_id')
+
+#somme des sinistres pour chaque fourchette d'age
+ByAgeClaims=ClaimsWithAge%>%
+  group_by(fourchette)%>%
+  arrange(fourchette,pet_id)%>%
+  summarise(fourchette=first(fourchette),claims_reimbursed=sum(claims_reimbursed))%>%
+  ungroup()
+
+#dernier merge pour obtenir le montant cumulé primes & sinistres, puis calculer le S/P par fourchette d'âge
+MergedAge=merge(ByAgeClaims,ByAgePremium,by="fourchette")%>%
+  mutate(SPage=100*claims_reimbursed/prime_hthc)
+
+#affichage des différents ratios S/P
+print("Ratio S/P sur la période 2022 pour trois fourchette d'âge:\n")
+for (i in 1:nrow(MergedAge))
+{
+  cat(as.character(MergedAge$fourchette[i])," ans : ",round(MergedAge$SPage[i], digits = 2),"%\n")
+}
+```
+Pie charts:
+* Primes
+```{r}
+pie_chart2 = plot_ly(
+  labels = MergedAge$fourchette,
+  values = MergedAge$prime_hthc,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la prime par fourchette d'âge")
+
+pie_chart2
+```
+* Sinistres
+```{r}
+pie_chart3 = plot_ly(
+  labels = MergedAge$fourchette,
+  values = MergedAge$claims_reimbursed,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"
+)%>%
+  layout(title = "Proportion de la sinistralité par fourchette d'âge")
+
+pie_chart3
+```
+
+#### Bonus:  
+Montant moyenne de la prime par race:
+```{r}
+#prime moyenne par race
+MeanPrem=MergedAge%>%
+  ggplot(aes(x=fourchette,y=moy_prime))+geom_col(color="black",fill="darkblue",alpha=0.7)+
+  coord_flip()+labs(title="Prime moyenne par race",x="",y="Valeur prime moyenne (€)")+theme_classic()
+
+ggplotly(MeanPrem)
+```
+
+### S/P de la partie prévoyance
+Les sinistres peuvent être catégorisés dans parties : accidents, maladie & prévoyance. Si la partie accident & maladie est comprise dans la garantie de base, la partie prévoyance elle n'est couverte que si la garantie est souscrite, elle à un plafonde de 100€ par an. On va analyser la profitabilité de cette garantie:  
+#### Montant de la sinistralité selon le type de sinistre:
+```{r}
+ByClaimsType=claims%>%
+  arrange(claim_type)%>%
+  group_by(claim_type)%>%
+  summarise(claim_type=first(claim_type),Montant=sum(claims_reimbursed))%>%
+  ungroup()
+
+pie_chart = plot_ly(
+  labels = ByClaimsType$claim_type,
+  values = ByClaimsType$Montant,
+  type = "pie",
+  textposition = "inside",
+  textinfo = "percent+label"  # Ajustez la taille du trou au besoin
+)%>%
+  layout(title = "Proportion de la sinistralité par type de claim")
+
+# Affichez le pie chart
+pie_chart
+```
+
+#### Calcul du S/P  
+```{r}
+#Que les primes qui ont souscrits à de la prévoyance
+premiumPrev=premium%>%
+  select(pet_id,pet_type,pet_race,prevention_hthc,prevention_limit)%>%
+  filter(!is.na(prevention_hthc))
+
+#Que les claims de type prévoyance
+claimsPrev=claims%>%
+  filter(claim_type=="PREVENTION")%>%
+  select(pet_id,claims_reimbursed)
+#ratio S/P global de la garantie prévention
+
+SPgPrev=100*sum(claimsPrev$claims_reimbursed)/sum(premiumPrev$prevention_hthc)
+cat("Le ratio S/P global pour la garantie prévoyance est de",round(SPgPrev, digits = 2),"%")
+```
+Ce n'est pas très profitable. Faisons un calcul rapide pour essayer d'évaluer la prime pure:
+```{r}
+premiumPrevClient=premiumPrev%>%
+  arrange(pet_id)%>%
+  group_by(pet_id)%>%
+  summarise(pet_id=first(pet_id),prime_prev=first(prevention_hthc),nbr_prime_verses=n())%>%
+  ungroup()
+
+VraiePrimeAnnuelleMoy=mean(premiumPrevClient$nbr_prime_verses)*mean(premiumPrevClient$prime_prev) #produit entre la prime moyenne et le nombre de primes moyenne versés
+cat("Montant de la prime annuelle payé: ",VraiePrimeAnnuelleMoy,"\n")
+
+#combien coute chaque client en prévoyance
+claimsPrevClient=claimsPrev%>%
+  arrange(pet_id)%>%
+  group_by(pet_id)%>%
+  summarise(pet_id=first(pet_id),sinistralite_tot=sum(claims_reimbursed))%>%
+  ungroup()
+
+summary(claimsPrevClient$sinistralite_tot)
+```
+Dans ce scénario, on observe bien que il y a une sous tarification sur la partie prévoyance.
