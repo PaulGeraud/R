@@ -171,7 +171,7 @@ for (i in 1:nrow(MergedAge))
   cat(as.character(MergedAge$fourchette[i])," ans : ",round(MergedAge$SPage[i], digits = 2),"%\n")
 }
 
-#Généralités
+#Partie prévoyance
 
 #Que les primes qui ont souscrits à de la prévoyance
 premiumPrev=premium%>%
