@@ -25,8 +25,14 @@ library(tidyverse)
 library(lubridate)
 library(plotly)
 library(corrplot)
-library(moments)
+library(e1071)
+#library(moments)
 library(tseries)
+library(car)
+library(caret)
+library(pROC)
+#library(FactoMineR)
+library(factoextra)
 ```
 
 -   **tidyverse**, utilisé pour manipuler les données et réaliser des graphiques plus esthétiques que ceux proposés par R de base.
@@ -136,6 +142,8 @@ cat("Ecart type: ",sd(auto$CHARGE))
 hist(auto$CHARGE)
 boxplot(auto$CHARGE)
 ```
+
+
 On observe très clairement que l'écrasante majorité des assurés n'ont pas eu de sinistres au cours de l'année. L'écart type est conséquent, suggérant une forte dispersion probablement entrainé par la présence de valeurs extrêmes. Cela est observable sur l'hisogramme. Recherchons le quantile limite à partir duquel il y a des sinistres:
 ```{r}
 p=seq(from=0.75,to=0.995,by=0.005)
@@ -184,7 +192,9 @@ On retrouve au final des résultats plus étalés mais avec une dynamique simila
 * 75% des sinistres sont en dessous de 2000€
 * Un peu moins de 2% des sinistres sont au dessus de 10000€.
 
-## Corrélations entre les variables
+## Corrélations entre les expliquant la sinistralité
+
+### Variables continues
 
 Pour les corrélations, on ne va comparer que les variables continues (sinon la corrélation n'a pas vraiment de sens):
 ```{r}
@@ -215,8 +225,15 @@ Faisons également une analyse en composante principale:
 ```{r}
 pca=prcomp(VarContinues)
 summary(pca)
-biplot(pca)
+par(mfrow=c(2,1))
+fviz_eig(pca, addlabels = TRUE, ylim = c(0, 50))
+fviz_pca_var(pca, col.var = "black")
 ```
+Avec une ACP, on se rend compte que il y a vraiment deux variables qui expliquent toute la variabilité du dataset : l'ancienneté du permis et dans une moindre mesure, le montant de la sinistralité.  
+
+### Variables catégoriques
+
+Pour cette partie, on va s'intéresser seulement aux sinistres avérés (charge>0).
 
 # Regroupement des modalités
 
@@ -237,7 +254,7 @@ auto_Modal=auto%>%
     substr(CSP,1,1)=="5"~"Employes",
     substr(CSP,1,1)=="6"~"Ouvriers",
     substr(CSP,1,1)=="7"~"Retraites",
-    substr(CSP,1,1)=="8"||substr(CSP,1,1)=="9"~"Autre"
+    .default="Autre"
   ),CATEGORIE=case_when(
     CAR %in% c("BER","BRK","MSPF","MSPHF")~"Familiale",
     CAR %in% c("CAB","CPE","TT")~"Sportif & TT",
@@ -282,8 +299,8 @@ rm(BySex)
 #segmentation selon la catégorie socio pro
 ByJob=auto_Modal%>%
   mutate(Categor=case_when(
-    CSP %in% c("Artisans, Commerçants & Chef entreprise","Cadres","Employés","Ouvriers")~"Sedentaire",
-    CSP %in% c("Agriculteur","Intérimaire et techniciens")~"Mobile"
+    CSP %in% c("Artisans, Commerçants & Chef entreprise","Cadres","Employes","Ouvriers","Retraites","Autre")~"Sedentaire",
+    CSP %in% c("Agriculteur","Interimaire et techniciens")~"Mobile"
   ))%>%
   group_split(Categor)
 list2env(setNames(ByJob, c("Sedentaire","Mobile")), envir = .GlobalEnv)
@@ -513,5 +530,7 @@ ks.test(log(auto$PERMIS),"pnorm",mean=mu_est,sd=sd_est)
 jarque.bera.test(log(auto$PERMIS))
 ```
 On rejette donc l'adéquation à une loi log normale. Il faudrait trouver une loi à support positiv avec une queue de densité très lourde.
+
+#
 
 
