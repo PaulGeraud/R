@@ -1,0 +1,765 @@
+---
+title: "Generalized Linear Model Report"
+author: "Paul Géraud, Tony Liu, Thomas Bullimore, Armand Eyraud"
+date: "16 December 2023"
+output:
+  pdf_document:
+    keep_tex: true #empeche le pdf de s'ouvrir automatiquement
+    extra_dependencies: ["mathtools","graphics","amssymb","gensymb","amsmath","inputenc","hyperref","bbm","tcolorbox"]
+    highlight: default
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+#Définition de la seed pour avoir le même rapport à chaque génération
+```
+
+\renewcommand{\contentsname}{Table of contents}
+\tableofcontents
+
+\textbf{List of used library}
+
+```{r}
+library(tidyverse) #clean the data and plot fancy graphics
+library(gridExtra) #allows to plot several ggplot graphs in one (like par(mfrow()))
+library(car) #More tools for regression
+library(lubridate) #Handy library for manipulating dates
+library(corrplot) #Plot fancy correlation matrix
+library(caret) #Handle confusion matrix, usefull for testing binomial regression
+library(pROC) #plot and analyze ROC curves, useful for binomial regression
+#library(MASS) #create more GLM models. Will be loaded later
+#because generate a conflict with dplyr
+```
+Not all code is displayed in order to make the report more concise. The whole code can be viewed in the R Markdown file.
+\pagebreak
+
+\section{Model the significance of earthquakes using linear regression}
+In this section, we will examine a dataset on earthquakes obtained from the following \underline{\textit{\href{https://www.kaggle.com/datasets/warcoder/earthquake-dataset/data}{Kaggle page}}}:
+\subsection{Cleaning the data}
+The data contain the following relevant columns:
+\begin{itemize}
+\item \textbf{Magnitude:}The magnitude of the earthquake
+\item \textbf{Date:} date and time
+\item \textbf{Cdi:} The maximum reported intensity for the event range
+\item \textbf{Mmi} The maximum estimated instrumental intensity for the event
+\item \textbf{Alert:} The alert level - “green”, “yellow”, “orange”, and “red”
+\item \textbf{Tsunami:} "1" for events in oceanic regions and "0" otherwise
+\item \textbf{Sig:} A number describing how significant the event is. Larger numbers indicate a more significant event. This value is determined on a number of factors, including: magnitude, maximum MMI, felt reports, and estimated impact
+\item \textbf{Nst:} The total number of seismic stations used to determine earthquake location.
+\item \textbf{Dmin:} Horizontal distance from the epicenter to the nearest station
+\item \textbf{Gap:} The largest azimuthal gap between azimuthally adjacent stations (in degrees). In general, the smaller this number, the more reliable is the calculated horizontal position of the earthquake. Earthquake locations in which the azimuthal gap exceeds 180 degrees typically have large location and depth uncertainties
+\item \textbf{Depth:} The depth where the earthquake begins to rupture
+\item \textbf{latitude/longitude:} coordinate system by means of which the position or location of any place on Earth's surface can be determined and described
+\item \textbf{Location:} location within the country
+\item \textbf{Continent:} continent of the earthquake hit country
+\item \textbf{Country:} affected country
+
+\end{itemize}
+The dataset we imported from here was not cleaned. We had to perform a lot of operations on it to make it clean. The whole cleaning code is available in R markdown. The main part was:
+\begin{itemize}
+\item Salvage the Country column. It was often full of missing values, however we could find the name of the country in the \textit{location} column, so we extract it using RegEx. It was not perfect so we had to manually check to make some modifications.
+\item Recode the alert variable to numeric values, se we could eventually create a model for evaluating this variable.
+\item Each row correspond to a earthquake but sometimes, there are successive rows that represent the same earthquakes. Using the fact that those rows have very similar date time, we use it to identify those lines and remove them
+\end{itemize}
+```{r,echo=FALSE}
+Earthquakes=read.csv("earthquake_1995-2023.csv", header = TRUE, sep = ",", dec = ".",
+                        fill = TRUE)
+Earthquakes[Earthquakes == ''] = NA
+Earthquakes=Earthquakes%>%
+    dplyr::select(-magType,-net,-title)%>% #drop
+    mutate(country=str_to_title(trimws(ifelse(is.na(country),sub(".*?([A-Za-z ]+)$", "\\1", location),country),"left")))%>% #RegEx pour compléter Country
+    mutate(country=dplyr::recode(country,"The Fiji Islands"="Fiji Islands","Fiji"="Fiji Islands","Alaska Peninsula"="Alaska","Russian Federation (The)"="Russia","Russia Region"="Russia",
+                          "People's Republic Of China"="China","Kermadec Islands Region"="Kermadec Islands","The Kermadec Islands Region"="Kermadec Islands","The South Sandwich Islands Region"="South Sandwich Islands",
+                          "South Georgia And The South Sandwich Islands"="South Sandwich Islands","Reunion Region"="Reunion","United Kingdom Of Great Britain And Northern Ireland (The)"="South Sandwich Islands",
+                          "Prince Edward Islands Region"="Canada","The Bouvet Island Region"="Bouve Islands","Turkiye"="Turkey","New Zealand Region"="New Zealand",
+                          "The Northern Mariana Islands"="Northern Mariana Islands","Off The West Coast Of Northern Sumatra"="Indonesia",
+                          "The Solomon Islands"="Solomon Islands","Philippine Islands Region"="Philippines","The Kuril Islands"="Kuril Islands","Vanuatu Region"="Vanuata",
+                          "Japan Region"="Japan","India Region"="India","California"="United States Of America"
+                          ))%>% #gère Exceptions pas attrapés par le RegEx
+    mutate(alert=dplyr::recode(alert,"green"=0,"yellow"=1,"orange"=2,"red"=3))%>% #Recodage des niveaux d'alerte en des niveaux numériques
+    replace_na(list(alert=-1,continent="Oceanic",country="Oceanic"))%>% #-1 indique que il n'y a pas d'alertes, cela peut être intéréssant de les garder
+    dplyr::select(-location)%>% #On enleve location maintenant que la colonne est inutile
+    rename(nearest_country=country)%>% #Donner un nom plus significatif à ce que sera country
+    mutate(date_time=dmy_hm(date_time))%>% #Conversion en DateTime
+    filter(abs(difftime(date_time,lag(date_time)))>hours(12))%>% #On enleve les séismes qui se sont produits avec moins de 12h d'écart (séismes identiques)
+    mutate(date=as.Date(date_time))
+```
+That being done, we also tried to remove some extremes values that would cause harm to our models.
+```{r,include=FALSE}
+summary(Earthquakes)
+```
+\begin{center}
+\includegraphics[width=0.75\linewidth]{EarthquakeSummary.png}
+\end{center}
+By doing this, we found out that there were “gap” values that were above 180. However, as said on the description above, “gap” observations that have a value greater than 180 can provide unreliable information. For this reason, we chose do drop them using: 
+```{r,echo=FALSE}
+Earthquakes=Earthquakes%>%filter(gap<=180)
+```
+\subsection{Scrapping the data}
+Now, in order to prepare our predictions, we made some data scraping.
+As observed, our numerical variables suitable for linear regression analysis aren't particularly interesting to analyse. Except for 'mmi,' 'sig,' and 'Magnitude,' predicting other variables seemingly holds no real interest. However, an additional drawback is that the 'mmi' variable (Mercalli intensity scale), which would have been quite interesting to predict as it categorizes earthquakes based on their intensity and actual impact (intensity =/= magnitude = released energy), only takes specific discrete values: 0, 1, 2, ..., 10 and we know that using linear regression is not the most appropriate method for making predictions.  
+Given our rather limited choices, we considered performing Data Scraping to find another dataset containing additional variables for merging. Our choice was a dataset containing the following supplementary information: 'INTENSITY,' 'TOTAL_DEATHS,' 'DAMAGE_MILLIONS_DOLLARS,' 'TOTAL_HOUSES_DESTROYED.'
+For the merge, we needed common columns in both databases. Thus, we used the date and country columns but unfortunately, the merge didn’t yield the expected results as the variables integrated into our very first dataset had a proportion of unattributed values (NA) that was too high.
+\subsection{Creation of our linear model and prediction}
+Not finding any other solutions, we decided to focus on predicting the magnitude.  
+To predict the magnitude, we created a linear regression model using the following variables: cdi, mmi, tsunami, sig, nst, dmin, gap, depth, latitude, longitude, alert, continent.  
+Then, we improved it by using the step function to obtain a new model where the variables were chosen via the stepwise method ("both"). We opted for the stepwise method rather than forward or backward because we believe it to be more effective. It combines the two mentioned methods and successively eliminates and adds variables.
+```{r,results="hide"}
+Earthquakes <- Earthquakes %>% #change the default level
+              mutate(continent = relevel(factor(continent), ref = "Oceanic"))
+
+full.model <- lm(magnitude ~ cdi + mmi + tsunami + sig + nst + dmin + gap + depth +
+        latitude + longitude + alert + continent, data = Earthquakes)
+full.step <- step(full.model, direction = "both", trace = FALSE)
+summary(full.step)
+```
+![summary test.](EarthquakesStep.png)
+We can observe that the predictive variables kept by the function are : mmi + tsunami + sig + dmin + gap + depth +  latitude + alert + continent
+The two main drawbacks of this stepwise method are:
+\begin{itemize}
+\item A higher algorithmic cost, which shouldn’t pose a major problem for the size of our dataset.
+\item Significant risk of overfitting since the stepwise method does not consider multicollinearity when selecting variables.
+\end{itemize}
+Thus, we can verify that there is no overfitting by displaying a heatmap to observe the correlations between the predictive variables. We can also use the vif function (where vif stands for Variance Inflation Factor) to evaluate the multicollinearity among the explanatory variables in a linear or generalized linear regression model."
+```{r,fig.dim=c(6,6)}
+keeptest<-c("magnitude","cdi","mmi","tsunami","sig","nst","dmin","gap","depth",
+            "latitude","longitude","alert")
+corrplot(cor(subset(Earthquakes, select = keeptest)), method = "color")
+```
+As we can observe, there isn’t much correlation between magnitude and the other variables except for sig$\approx 0.5$, which makes sense since sig is a rating given to the earthquakes after they occurred. However, we can see that sig is also quite correlated to cdi$\approx 0.5$, mmi$\approx 0.4$ and alert$\approx 0.5$. It doesn’t matter if sig is correlated to cdi for this model since cdi wasn’t used as a predictive variable. Nevertheless, it’s not the same for mmi and alert since they are both predictive variables for this model.
+Therefore, in order to know if there is a real issue or not, let’s check the variance inflation factor. 
+
+```{r}
+vif_values <- vif(full.step)
+vif_values
+```
+Here is how we should interpret the VIF values: 
+\begin{itemize}
+\item VIF equal to 1 = variables are not correlated.
+\item VIF between 1 and 5 = variables are moderately correlated.
+\item VIF greater than 5 = variables are highly correlated.
+\end{itemize}
+
+As we can see, the VIF values are below 2.55 (so <5) and the variables are moderately correlated. Moreover, without any surprise, the ones with the higher VIF are mmi and alert.  
+In the end, this model isn’t that good since we only have an adj R_squared value of 0.3633, and we can try some ideas in order to increase or adj R_squared value and so the quality of our predictions.  
+As seen previously on the correlation matrix, magnitude is quite correlated to sig but not to alert. One of the possible reasons for that is that initially, alert had a lot of missing values (55.1%) and we then replaced them by the value -1. Doing that probably worsened the quality of this column predictive capability. Let’s try to correct that by remove all observations (rows) with alert equal to -1.
+```{r,results="hide"}
+Earthquakes2<-Earthquakes[Earthquakes[,5]!=-1,]
+model2 <- lm(magnitude ~ cdi + mmi + tsunami + sig + nst + dmin +gap +depth +latitude + 
+               longitude +alert + continent, data = Earthquakes2)
+step.model2 <- step(model2, direction = "both", trace = FALSE)
+summary(step.model2)
+```
+![summary test.](SecondModelEarthquakes.PNG)
+As we can see, there is a lot of insignificant predictive variable, but the worst is nst, let’s remove it.
+
+We still have insignificant predictive variable, but we decided to keep them. In the end, the idea that we had wasn’t that bad since we know have an adjusted R_squared value of \textbf{0.3834} and if we look at magnitude and alert, their correlation increased a bit and sig and alert are way more correlated ($\approx 0.75$).  
+Let’s try to improve our predictive capabilities a bit by focusing our analysis on continental earthquakes.
+```{r,results="hide"}
+Earthquakes4 <- Earthquakes2%>%dplyr::filter(continent!="Oceanic")
+model4 <- lm(magnitude ~ cdi + mmi + tsunami + sig + nst + dmin +gap +depth +latitude +
+               longitude +alert +continent, data = Earthquakes4)
+step.model4 <- step(model4, direction = "both", trace = FALSE)
+summary(step.model4)
+```
+![summary test.](ThirdModelEarthquakes.PNG)
+We can notice that magnitude is more correlated to the other predictive variables like cdi, mmi, tsunami, sig and alert. But something else is even more surprising, depth is highly correlated to mmi (~0.8) meaning that the depth was the earthquake begins to rupture may have a strong relation ship with the intensity of the earthquakes.  
+Unfortunately, mmi and depth are both predictors of our model, we may have a multicollinearity issue. Let’s check that.
+```{r}
+vif_valuesT4 <- vif(step.model4)
+vif_valuesT4
+```
+The values are quite high but still between 1 and 5 so there are still only moderately correlated.
+However, the adjusted R_squared of our model has worsened, it became \textbf{0.3087}. Still, let’s make some predictions.
+
+So first, we split the data in order to do some training and then testing.
+```{r}
+sample <- sample(c(TRUE, FALSE), nrow(Earthquakes4), replace=TRUE, prob=c(0.7,0.3))
+train_data  <- Earthquakes4[sample, ]
+test_data   <- Earthquakes4[!sample, ]
+
+predictions4 <- predict(step.model4, newdata = test_data[, colnames(test_data) 
+                                                         != "magnitude"])
+
+
+mae <- mean(abs(predictions4 - test_data[,1]))
+rmse <- sqrt(mean((predictions4 - test_data[,1])^2))
+mse <- mean((predictions4- test_data[,1])^2)
+
+#We can see that the different errors measurement
+print(paste("MAE:", mae))
+print(paste("RMSE:", rmse))
+print(paste("MSE:", mse))
+```
+\textbf{Let’s verify that the hypothesis needed to make a linear regression are verified.}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+#normality
+par(mfrow = c(2, 2))
+hist(step.model4$residuals)
+#homoscedasticity
+plot(step.model4$residuals ~ step.model4$fitted)
+plot(abs(step.model4$residuals) ~ step.model4$fitted)
+#individual residuals
+plot(step.model4$residuals)
+```
+\textbf{Let's plot our data}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+plot_data <- data.frame(True_Values = test_data[,1], Predicted_Values = predictions4)
+
+ggplot(plot_data, aes(x = True_Values, y = Predicted_Values)) +
+  geom_point() +  
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  
+  labs(x = "Observed Values", y = "Predicted/Fitted Values", title = "Observed vs. Fitted Values")
+
+```
+Finnally, we are going to do a last model to predict the variable \textbf{sig}:
+
+```{r,results="hide"}
+modelsig <- lm(sig ~ cdi + mmi + tsunami + magnitude + nst + dmin +gap +depth +latitude
+               + longitude +alert +continent, data = Earthquakes2)
+step_modelsig <- step(modelsig, direction = "both", trace = FALSE)
+summary(step_modelsig)
+```
+![summary test.](FourthModelEarthquakes.PNG)
+\textbf{Normality hypothesis}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+#normality
+par(mfrow = c(2, 2))
+hist(step_modelsig$residuals)
+#homoscedasticity
+plot(step_modelsig$residuals ~ step_modelsig$fitted, main="Homoscedasticity test")
+plot(abs(step_modelsig$residuals) ~ step_modelsig$fitted, main="Homoscedasticity test")
+#independent residuals
+plot(step_modelsig$residuals, main="Independent residuals test")
+```
+The normality hypothesis is not exactly matched but it is still coherent. Homoscedasticity and independance seems to be verified.  
+Finally, we want to do predictions. We are also going to compute additional metrics
+```{r,echo=FALSE}
+sample_sig <- sample(c(TRUE, FALSE), nrow(Earthquakes2), replace=TRUE, prob=c(0.8,0.2))
+train_data_sig  <- Earthquakes2[sample_sig, ]
+test_data_sig   <- Earthquakes2[!sample_sig, ]
+predictions_sig <- predict(step_modelsig, newdata = test_data_sig[, colnames(test_data_sig) != "sig"])
+mae_sig <- mean(abs(predictions_sig - test_data_sig[,7]))
+rmse_sig <- sqrt(mean((predictions_sig - test_data_sig[,7])^2))
+mse_sig <- mean((predictions_sig - test_data_sig[,7])^2)
+cat("MSE= ",mse_sig,"\nRMSE=",rmse_sig,"\nMAE",mae_sig)
+```
+Finally, we plot the predicitions:
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+plot_data_sig <- data.frame(True_Values_sig = test_data_sig[,7], Predicted_Values_sig = predictions_sig)
+ggplot(plot_data_sig, aes(x = True_Values_sig, y = Predicted_Values_sig)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  
+  labs(x = "Observed Values", y = "Predicted/Fitted Values", title = "Observed vs. Fitted Values")
+```
+\pagebreak
+\section{Model the odds of heart failure with binomial regression:}
+\subsection{Data cleaning:}
+The used dataframe is available on Kaggle \underline{\textit{\href{https://www.kaggle.com/datasets/rashikrahmanpritom/heart-attack-analysis-prediction-dataset}{here}}}
+```{r,echo=FALSE}
+heart=read.csv("heart.csv",sep=",") #load the data
+cat("Number of columns: ",ncol(heart),"\nNumber of rows: ",nrow(heart))
+```
+Here is the signification of the columns:
+\begin{itemize}
+\item	\textbf{age} : age of the patient
+\item	\textbf{sex} : sex of the patient 
+\item	\textbf{cp} : Chest Pain type : 
+\begin{itemize}
+\item	\textbf{1} : typical angina
+\item	\textbf{2} : atypical angina
+\item	\textbf{3} : non-anginal pain
+\item	\textbf{4} : asymptomatic
+\end{itemize}
+\item	\textbf{trtbs} : resting blood pressure (in mm Hg)
+\item	\textbf{chol} : cholestoral in mg/dl fetched via BMI sensor
+\item	\textbf{fbs} : fasting blood sugar > 120 mg/dl (1 = true; 0 = false)
+\item	\textbf{restecg} : resting electrocardiographic results
+\begin{itemize}
+\item	\textbf{0} : normal
+\item	\textbf{1} : having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV)
+\item	\textbf{2} : showing probable or definite left ventricular hypertrophy by Estes' criteria
+\end{itemize}
+\item	\textbf{thalachh} : maximum heart rate achieved
+\item	\textbf{exng} : exercise induced angina (1 = yes; 0 = no)
+\item	\textbf{oldpeak} : previous peak
+\item	\textbf{slp}: slope
+\item	\textbf{caa} : number of major vessels (0-3)
+\item	\textbf{thall} : thal rate
+\begin{itemize}
+\item	\textbf{0} : NULL (dropped from the dataset previously. 
+\item	\textbf{1} : fixed defect (no blood flow in some part of the heart) Value 2: normal blood flow.
+\item	\textbf{3} : reversible defect (a blood flow is observed but it is not normal)
+\end{itemize}
+\item	\textbf{output} : patient’s heart attack risk status. \textbf{target variable}
+\begin{itemize}
+\item	\textbf{0} : less chance of heart attack 
+\item	\textbf{1} :  more chance of heart attack
+\end{itemize}
+\end{itemize}
+\textit{Useful vocabulary} :  
+thal: blood disorder called thalassemia  
+```{r}
+missing <- function(column) {
+  sum(is.na(column)) / length(column) * 100
+}
+
+missing <- sapply(heart, missing)
+missing
+```
+```{r}
+sapply(heart,class)
+```
+```{r}
+# Types looks good, now we're going to check that there's no weird values
+#in our non binary columns
+
+heart_non_binary <- heart[, c("age", "trtbps", "chol", "thalachh")]
+
+boxplot(heart_non_binary, 
+        main = "Boxplot of Variable",
+        ylab = "Values")
+```
+We observe extreme values in the chol column which we won't be using in our study, so we remove them.  
+```{r,echo=FALSE,include=FALSE}
+clean_heart_non_binary <- heart_non_binary[heart$chol <= 370, ]
+
+boxplot(clean_heart_non_binary, 
+        main = "Boxplot of Variable",
+        ylab = "Values")
+
+clean_heart <- heart[heart$chol <= 370,]
+```
+
+Our target/output variable we are using for the binomial regression is used to say if we have less chance or more chance of having a heart attack.  
+The dataset is now cleaned there is no missing values and the target variable is in the good format (0,1), we can now start modelling.
+\subsection{Applying binomial regression}
+Our goal is to predict the output value. To determine the variable to which we will apply our model, we explored various methods. Initially, we randomly selected one or more variables, but as anticipated, the results were unsatisfactory. We then experimented with a dispersion tree, inspired by our "Machine Learning" course. However, the outcomes were still not convincing. Finally, we opted to assess the correlation between variables and the output by plotting the correlation matrix. This allowed us to identify the variables with the highest correlation to the output value. We subsequently tested different combinations of these explanatory variables, applying the same model, and compared the models based on their AIC. Ultimately, we retained the model with the lowest AIC value.
+Here's the correlation matrix of our dataset : 
+```{r}
+corrplot(cor(clean_heart%>%dplyr::select(-sex,-cp,-fbs,-exng)),method="color")
+```
+Now, let's create our model :
+```{r,results="hide"}
+BinomModel = glm(output ~ thalachh + oldpeak + slp + caa + thall + age, 
+            data = clean_heart, 
+            family = "binomial")
+summary(BinomModel)
+```
+![summary test.](HeartSummary.png)
+We can apply the exponential function to understand the impact of each variable on the odds ratio:
+```{r,echo=FALSE}
+exp(coef(BinomModel))
+```
+Some concrete explanation:
+
+Let's do some plots to assess the quality of our model :  
+
+\textbf{Fit the data to predict the probability of having a heart attack given by x}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+
+ggplot(clean_heart, aes(x = thalachh + oldpeak + slp + caa + thall + age,
+                  y = output)) + 
+  geom_jitter(height = .05,
+              alpha = .1) +
+  geom_smooth(method = "glm", 
+              method.args = list(family ="binomial"), 
+              se = FALSE)+labs(title="Estimated cumulative function of output")
+```
+We recognise the sigmoid form of the cumulative function curve. 
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+res=BinomModel$residuals
+par(mfrow = c(2, 2))
+plot(BinomModel,which = 1)
+# Normality
+plot(BinomModel,which = 2)
+hist(res)
+mtext("Analysis of residuals", line = -1, outer = TRUE)
+```
+The residuals does not look exactly normal however. Let's run a Kolmogorov-Smirnov test:
+```{r}
+esp = mean(res)
+var = sd(res)
+glmod2 = (res - esp)/var
+ks.test(glmod2,"pnorm") 
+```
+So, we ultimately reject the hypothesis of normally distributed residuals.
+\subsection{Perform predictions:}
+As a result, we’re now going to try to predict the output value for each patient from the results of our linear model. As a reminder, if predicted value is 0, then patient is not considered at risk of having a heart attack. Therefore, if predicted value is 1, then the patient is HIGHLY at risk. However, we do think it’s important to underline that, although possible, it is extremely complicated to predict a heart attack.  
+
+According to the results of our model, we can obtain a prediction which takes the form of a probability : the closer to 1, the higher the probability of having a heart attack, and the closer to 0, the lower the chance of having a heart attack. We then decided that if the probability is > 0.5, our prediction value will be 1, and <= 5, our prediction will take the value 0 (we apply this to every single patient).
+```{r,echo=FALSE}
+# We're now going to try to predict each patients heart attack risk status (1 : at risk and 0 : not at risk)
+
+predictions <- predict(BinomModel, newdata = clean_heart, type = "response")
+
+# We now add to our data set a new column called "predictions" which contains each patient's prediction value  
+
+clean_heart$predictions <- predictions
+
+# We then decide that if prediction value is > 0.5 then the patient is considered at risk, and if <= 0.5 then not at risk
+
+clean_heart$predictions <- ifelse(clean_heart$predictions > 0.5, 1, 0)
+
+clean_heart <- clean_heart %>%
+  mutate(matching_prediction = ifelse(predictions == output, TRUE, FALSE))
+
+# We compute the number of wrong predictions and the percentage of wrong predictions
+
+count_false <- sum(!clean_heart$matching_prediction)
+cat(count_false, "patients have had their risk status wrongfully predicted.\n")
+perc_wrong_predict <- count_false/nrow(clean_heart)
+cat("Percentage of wrong values :", perc_wrong_predict*100, "%\n")
+
+# -----------------------------------------------------------------------
+
+# We'll now compute our R^2 value 
+
+ll.null <- BinomModel$null.deviance/-2
+ll.proposed <- BinomModel$deviance/-2
+cat("Estimated R²=",(ll.null-ll.proposed)/ll.null) # 
+
+# Result is not very convincing... which we could have expected as it is a logistic regression 
+# 0.345 still tells us the effect size of the relationship
+```
+We have overal 80% of good answer which is solid.  
+To better understand why the results above are as follow, we’ll now try to draw a graph that shows the predicted probabilities that each patient are considered being at risk of a heart attack along with their actual heart attack risk status.  
+As we can observe, we can’t really conclude from the graph. Near 0.5 probability is where we observe the most wrong predictions which does make sense. We also observe very few patients with a high probability who according to the data set are not at risk. Nonetheless, there’s also a few wrong predictions where the probability is low but the client is in reality at high risk.  
+Therefore, to conclude, whilst the model is mainly right, it is not perfectly correct and still makes mistakes which is due to the fact that some variables were left out of the regression, but also due to the problematic we tried to answer : sometimes it is NOT possible to predict a heart attack, and even the patient has many symptoms, hopefully they don’t always are at risk (although we can say the same thing for patients who despite having no particular symptoms   can be victim of an attack). 
+
+
+
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+# -----------------------------------------------------------------------
+
+# We're now going to draw a graph that shows the predicted probabilities that each patient has an heart attack along with their actual heart attack risk status :c
+
+# Firstly we create new data frame with the probability we computed along with the actual heart attack risk status 
+predicted.data <- data.frame(probability.of.ha=BinomModel$fitted.values,ha=clean_heart$output)
+# Then we sort from lowest probability to highest probability 
+predicted.data <- predicted.data[order(predicted.data$probability.of.ha,decreasing=FALSE),]
+# We add a column with rank number
+predicted.data$rank <- 1:nrow(predicted.data)
+
+# We now draw the data, points in yellow are patients who are not considered at risk of having an heart attack and purple points are patients considered at risk
+
+ggplot(data=predicted.data, aes(x=rank,y=probability.of.ha)) +
+  geom_point(aes(color=ha),alpha=1,shape=4,stroke=2) +
+  xlab("Index") + 
+  ylab("Predicted probability of getting a heart attack") +
+  theme_bw() +
+  scale_color_gradientn(colours = c("yellow","purple"))+
+  labs(title="Probability of being at risk based on reality")
+
+
+# -----------------------------------------------------------------------
+```
+This graphic shows the probability of being at risk. Each point is an observation. Yellow dots are not subject at risk while purple are subject at risk. We clearly see that in general, the higher the probability is, the more likely the subject is at risk.  
+We will now make the confusion matrix to verify the prediction:
+```{r,echo=FALSE}
+# -----------------------------------------------------------------------
+
+index <- createDataPartition(heart$output, p = 0.8, list = FALSE)
+
+#  We split our data set : training 80% and test 20%
+
+train_heart <- heart[index, ]
+test_heart <- heart[-index, ]
+
+# We train our model on all our explanatory values
+
+BinomModelTrain = glm(output ~ thalachh + oldpeak + slp + caa + thall + age, 
+            data = train_heart, 
+            family = "binomial")
+
+#  We'll now try to predict our test values
+
+predictions <- predict(BinomModelTrain, newdata = test_heart,type="response")
+predictions=ifelse(predictions > 0.5, 1, 0)
+#  We create our confusion matrix and then we visualise it 
+
+confusion_matrix <- confusionMatrix(factor(predictions), factor(test_heart$output))
+print(confusion_matrix)
+```
+Finally, we are going to plot ROC curves to assess the performance of our model
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+roc_curve <- roc(clean_heart$output, predict(BinomModel, type = "response"))
+plot(roc_curve, main = "Receiver Operating Characteristic (ROC) Curve",
+     col = "blue", lwd = 2)
+```
+```{r}
+auc_value <- auc(roc_curve)
+cat("Area under  ROC curve (AUC) :", auc_value)
+```
+The more the CURVE is close to top left corner, the better the model is. The closer the AUC (area under curve) is close to 1, the better the model is.
+\pagebreak
+\section{Model the number of deaths during COVID outbreak in Europe:}
+\subsection{Abstract:}
+COVID-19 had a significant impact for several years, so it become a classic subject of study in data science. In this section, we are going to first load and clean a huge dataset containing information about COVID so select information only in Europe. Then, we will fit a Poisson regression in order to model the number of deaths from COVID. Finally, we will discuss about the negative binomial regression, a couting model that could be more suited than the Poisson regression for this data.  
+\subsection{Data cleaning:}
+
+The dataset used is available on Kaggle \underline{\textit{\href{https://www.kaggle.com/datasets/arslanali4343/covid19-data-from-world}{here}}}. It contains worldwide information about the COVID and has the following characteristics:
+```{r,echo=FALSE}
+covid=read.csv("covid-data.csv",sep=",") #load the data
+cat("Number of columns: ",ncol(covid),"\nNumber of rows: ",nrow(covid))
+```
+This dataset is too big.One row correspond to a record for one country for a given date. And the date ranges from February 2020 to September 2022.  
+Among the 67 columns, we are going to take only one that are interesting.  This include in particular: 
+\begin{itemize}
+\item Geographical information such as location (country) and continent
+\item Endemic variables such as the number of new cases, new deaths and people vaccinated. Number of people tested was also considered but not retained because there was too much missing values. Those values are scaled for 1 million people to remove bias from the size of the population of the country.
+\item Values that are specific to one country such as the human development index (HDI), life expectancy, the proportion of people 70 years old or older, the prevalence of diabetes and smoking. A final variable is the stringency index, it is a number ranging from 0 to 100 computed by Oxford University. The higher the value is, the more the anti-COVID politic is strict.
+\end{itemize}
+First, we decided to keep all countries that have a population higher than 305 000 because smaller countries would have unique dynamics (islands for example). We handled missing values by replacing them by appropriate values. Finally, we regrouped data by trimester, this would synthesize the data while creating a regressor that could highlight seasonal trends of mortality. To summaries variables, we will need depending on its nature to do different treatment. For exemple, we will sum deaths but take the last value for people vaccinated. To make the report more concise, the cleaning code is not displayed but it is available and commented in the R Markdown.
+```{r,include=FALSE}
+#PART I : Clean the data
+data=covid%>%
+  dplyr::select(date,location,continent,new_cases,new_deaths,total_cases_per_million,new_cases_per_million,total_deaths_per_million,new_deaths_per_million,
+         people_vaccinated,population_density,male_smokers,female_smokers,life_expectancy,diabetes_prevalence,human_development_index,population,
+         stringency_index,median_age,aged_65_older,aged_70_older)%>% #select the columns we want to keep
+  mutate(date=mdy(date),PctSmoker=(male_smokers+female_smokers)/2)%>% #convert date to date format and merge to have unisex smoke %
+  dplyr::select(-female_smokers,-male_smokers)%>% #now unisex smoke % computed, we can remove those columns
+  filter(population>305000)%>% #Remove smallest countries
+  drop_na(new_cases)%>% #rows where new_cases is NaN are filled with NaN, so we remove them
+  replace_na(list(new_deaths=0,total_cases_per_million=0,total_deaths_per_million=0,
+                  new_deaths_per_million=0,people_vaccinated=0,new_cases_per_million=0))%>%  #for thoses rows, NaN is before any case is detected, so it is equivalent to 0.
+  filter(!location %in% c("Africa","Asia","Europe","European Union","High income","International","Low income","Lower middle income",
+                          "North America","South America","Upper middle income","World","Oceania","North Korea","Kosovo","Syria","Taiwan","South Sudan",
+                          "Macao"))%>% #We remove location that are not countries. We also removed countries that were filled with too much missing values
+  #For the next lines, there were missing values for specific country, so we searched their value on Internet and insert them.
+  mutate(human_development_index=ifelse(is.na(human_development_index)& location=="Somalia",0.285,human_development_index))%>%
+  replace_na(list(aged_70_older=100*1070600/6871547))%>% 
+  mutate(PctSmoker=ifelse(location=='Honduras',13.0,PctSmoker))%>% 
+  mutate(PctSmoker=ifelse(location=='Peru',9.6,PctSmoker))
+#still a bunch of countries with NaN for PctSmoke. Because of time constraint, we replaced them with the mean value.
+  SmokePctMean=mean((data%>%distinct(location,.keep_all = TRUE))$PctSmoker,na.rm = TRUE)
+  data=data%>%
+  replace_na(list(PctSmoker=SmokePctMean))
+#PART II: Transform and group data by Quarter
+GroupedData=data%>%
+  mutate(Year=year(date),Quarter=case_when( #create quarters
+    month(date) %in% c(1,2,3)~1,
+    month(date) %in% c(4,5,6)~2,
+    month(date) %in% c(7,8,9)~3,
+    month(date) %in% c(10,11,12)~4
+  ))%>%arrange(.by_group = TRUE)%>%
+  group_by(location,Year,Quarter)%>% #grouping by Country, Year then Quarter
+  summarise(continent=last(continent),new_cases=sum(new_cases),new_cases_per_million=sum(new_cases_per_million),
+            new_deaths=sum(new_deaths),new_deaths_per_million=sum(new_deaths_per_million),
+            people_vaccinated=max(people_vaccinated),
+            population_density=last(population_density),population=last(population),
+            life_expectancy=last(life_expectancy),HDI=last(human_development_index),
+            diabetes_prevalence=last(diabetes_prevalence),PctSmoker=last(PctSmoker),
+            median_age=last(median_age),aged_65_older=last(aged_65_older),aged_70_older=last(aged_70_older),
+            stringency_index=mean(stringency_index,na.rm = TRUE)
+            )
+  #Final dataset
+  Final=GroupedData%>%
+  ungroup()%>% #Necessary to ungroup data or else cant be use in lm/glm functions
+  filter(!(people_vaccinated==0 & lag(people_vaccinated)!=0)|(Year==2020&Quarter==1))%>% #Handle some missing values
+  mutate(vaccinated_per_million=trunc((people_vaccinated*10^6)/population),new_deaths_per_million=trunc(new_deaths_per_million),
+         new_cases_per_million=trunc(new_cases_per_million))%>%
+  dplyr::select(-people_vaccinated) #remove this useless column
+```
+\subsection{Applying Poisson Model}
+First, let's look at correlation matrix of our dataset:
+```{r,fig.dim=c(6,6)}
+corrplot(cor(Final%>%dplyr::select(-Year,-Quarter,-continent,-location),use="complete"),
+         method = "color")
+```
+Some interesting analysis we can state:
+\begin{itemize}
+\item There are variables that are strongly correlated and it was expected. This is for example the proportion of 65 yo/older and proportion of 70 yo/older. Life expectancy and HDI are also highly correlated and this is logical because HDI is computed by taking life expectancy into account.
+\item Some correlations are more surprising. For example, HDI is positively correlated at the number of deaths. It would say that in developed countries, people die more from COVID. Despite looking paradoxical, this make sense because countries with a high HDI have also a higher proportion of elderly people, which are more likely to die from COVID. This is an example that correlation does not imply causality.
+\end{itemize}
+
+We have tried to do a general Poisson model on the whole data set. However, since the number of people who die from COVID vary hugely depending on the country (for example, there are few people who die from COVID in Africa or in islands). Hence, we decided to restrict our study to European Countries.
+Let's create our datasets
+```{r,fig.dim=c(6,6)}
+set.seed(1001)
+#whole Europe dataset
+EuropeLarge=Final%>%
+  filter(continent%in%c("Europe")&!(Year==2020&Quarter%in%c(1,2))&
+           !(Year==2022&Quarter==3))%>%
+  drop_na(stringency_index)
+#train test
+bound=floor(nrow(EuropeLarge)*0.8)
+df=EuropeLarge[sample(nrow(EuropeLarge)),]
+EuropeLarge_train=df[1:bound,]
+EuropeLarge_test=df[(bound+1):nrow(EuropeLarge),]
+#corrplot
+corrplot(cor(EuropeLarge%>%dplyr::select(-Year,-Quarter,-continent,-location),
+             use="complete"),
+         method = "color")
+
+```
+We can see that this correlation matrix looks different than the previous one. In particular, the paradox of HDI positively correlated with number of deaths become negatively correlated. We can also see that the stringency index, smoker and diabetes prevalence are slightly negatively correlated with the number of deaths. There are surprisingly nearly no correlation with age. This might be because the proportion of elderly people is uniform in Europe.  
+Now, we can create our Poisson Model. We will use the following function to do a step-wise selection process using the BIC criteria. We will also create a function to compute the Mean Square Error \textbf{(MSE)}:
+```{r,results="hide"}
+MSE=function(Model)
+{
+  residuals=Model$residuals
+  return(sum(residuals^2)/length(residuals))
+}
+
+bestModelPoisson=function(data)
+{
+  intercept_only <- glm(new_deaths_per_million ~ 1, data=data,
+                        family="poisson") #simplest model
+  all=glm(new_deaths_per_million~as.factor(Year)+as.factor(Quarter)+new_cases_per_million+
+            population_density+life_expectancy+HDI+diabetes_prevalence+PctSmoker+
+            vaccinated_per_million+median_age+aged_65_older+
+            aged_70_older+stringency_index
+          ,family="poisson",data=data) #most complex model
+  Model= step(intercept_only, direction='both', scope=formula(all), trace=0,
+              k=log(nrow(data)))
+  return(Model)
+}
+#apply it to our data
+StepWisePoisson=bestModelPoisson(EuropeLarge)
+summary(StepWisePoisson)
+
+```
+![summary test.](ModeleLargeStepSummary.png)
+```{r}
+cat("MSE = ",MSE(StepWisePoisson))
+```
+The step wise selection didn't work very well because it took the most complex model, however there is too much variable here. So we are instead choose manually our regressors.  Here are the variables that we will remove:
+\begin{itemize}
+\item \textit{median\_age} and \textit{aged65\_older} because they are highly correlated together and with \textit{aged70\_older}, so we will keep only the last one to avoid multicolinearity.
+\item \textit{life\_expectancy} for the same reason, we will only keep \textit{HDI}.
+\item \textit{diabetes\_prevalence} and \textit{population\_density} because we saw with the correlation matrix that they are only slightly correlated with the number of deaths. Also, in the model selected by the step wise selection, they are the model with the highest p-value (even if they are still significative).
+\end{itemize}
+Hence, the model selected still use 7 regressors, which is still relatively important.
+```{r,results="hide"}
+ModelLarge=glm(new_deaths_per_million~as.factor(Year)+as.factor(Quarter)+
+                 new_cases_per_million+
+                +vaccinated_per_million+aged_70_older+stringency_index+HDI+PctSmoker
+              ,family="poisson",data=EuropeLarge)
+summary(ModelLarge)
+```
+![summary test.](ModeleLargeSummary.png)
+```{r}
+cat("MSE = ",MSE(ModelLarge))
+```
+
+Compared to the more complex model, our MSE is a little bit lower which is good. Some interpretations we can make from our model:
+\begin{itemize}
+\item A higher number of people who catch the COVID \textbf{increases} the expected number of deaths.
+\item A higher number of people who are vaccinated against the COVID \textbf{decreases} the expected number of deaths.
+\item A higher number of people who catch the COVID \textbf{increases} the expected number of deaths.
+\item A higher proportion of Smoker and/or elderly people \textbf{increases} the expected number of deaths.
+\item Countries less developed (smaller HDI) are expected to have \textbf{more} deaths from COVID.
+\item The quarter 1 and 4 are the ones with the \textbf{highest} expected death from COVID. This is logic because it corresponds more or less to cold seasons, which are more suitable for transmission of viruses. 
+\item A strange predictor the stringency index since strictest country that expect most deaths from COVID. This can be explained because countries severely impacted by COVID will enforce coercive measure such as lock down. \textbf{This regressor might not be very relevant}.
+\end{itemize}
+
+We can now start doing some diagnostic graphs to evaluate our model:  
+\textbf{Fitted vs real values}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+data.frame(real=EuropeLarge$new_deaths_per_million,fitted=ModelLarge$fitted.values)%>%
+    ggplot(aes(x=real,y=fitted))+geom_jitter()+geom_abline(intercept = 0,slope=1,col="red")+
+    labs(title="Real VS fitted number of deaths per million in Europe between 2020 and 2022",x="Real values",y="Fitted values")
+```
+We can observe that the model is relevant and is doing correct predictions.
+\textbf{Quality check of residuals}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+data.frame(residual=residuals(ModelLarge),real=ModelLarge$fitted.values)%>%
+  ggplot(aes(x=real,y=residual))+geom_jitter()+geom_abline(intercept = 0,slope=0,col="black",linetype="dashed")+
+  labs(title="Residual plot for number of deaths per million in Europe between 2020 and 2022",x="Real values",y="Residuals")
+```
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+ResPlot2=data.frame(residual=residuals(ModelLarge))%>%
+  ggplot(aes(x=residual))+geom_density(col="red")+
+  labs(title="Estimated kernel density of residuals",x="residuals",y="density")
+
+a=sd(residuals(ModelLarge))
+b=mean(residuals(ModelLarge))
+ResPlot3=data.frame(residual=residuals(ModelLarge))%>%
+  ggplot(aes(sample=residual))+stat_qq(col='red')+
+  geom_abline(intercept = b,slope=a,col='black')+
+  labs(title="QQPlot of residuals",x="theorical",y="observed")
+grid.arrange(ResPlot2,ResPlot3,nrow=1,ncol=2)
+```
+We will also perform a Kolmogorov Smirnov Test on residuals to assess their normality:
+```{r}
+residual=(residuals(ModelLarge)-mean(residuals(ModelLarge)))/sd(residuals(ModelLarge))
+ks.test(residual,"pnorm")
+```
+$P_value \ge>0.05$, we can't reject $H_0$ and so the hypothesis that the residuals are normally distributed.  
+In the end, we have clean residuals.  
+\subsection{train-test split approach of our model}
+We have used our model on the whole dataset, which is not optimal to evaluate it's performance. So we divide in two our dataset, train the same model and then test it on an other part.
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+ModelTrain=glm(new_deaths_per_million~as.factor(Year)+as.factor(Quarter)+new_cases_per_million+
+                +vaccinated_per_million+aged_70_older+stringency_index+HDI+PctSmoker
+              ,family="poisson",data=EuropeLarge_train)
+cat("MSE = ",MSE(ModelTrain))
+data.frame(real=EuropeLarge_test$new_deaths_per_million,fitted=predict(ModelTrain,newdata=EuropeLarge_test,type="response"))%>%
+  ggplot(aes(x=real,y=fitted))+geom_jitter()+geom_abline(intercept = 0,slope=1,col="blue")+
+  labs(title="Real VS predicted number of deaths per million in Europe between 2020 and 2022",x="Real values",y="Predicted values")
+```
+We have correct values, however the larger the values are, the less the precision become precise. This can be explained partially because Poisson regression of equal mean and variance is not respected. Let's find a way to upgrade that.
+\subsection{Limit of the Poisson Regression and negative binomial regression:}
+\subsubsection{Theorical justifications:}
+In Poisson regression, we suppose that the response variable, $Y\sim \mathcal{P}(\lambda)$. Hence we must have in particular that $\mathbb{E}[Y]=\mathbb{V}[Y]=\lambda$. Let's check in our dataset if this property is verified:
+```{r,echo=FALSE}
+mean=mean(EuropeLarge$new_deaths_per_million)
+var=var(EuropeLarge$new_deaths_per_million)
+cat("mean = ",mean,"\nvariance = ",var)
+```
+We can clearly see that this condition is not verified. In practice, this condition is almost nearly verified and variance is greater than mean, this is called \textbf{overdispersion}.  
+A way to fix this problem is instead of assuming that $Y$ follows a Poisson distribution, $Y$ follows a \textbf{negative binomial distribution}.  
+We recall that $Y\sim\mathcal{B}\mathcal{N}(r,p)$ ($r$ is the number of failures, $p$ the probability of a success) if and only if:
+$$\forall k \in \mathbb{N},\mathbb{P}[Y=k]=\binom{k+r-1}{k}(1-p)^k p^r$$
+Like the binomial distribution, we can show that the binomial negative distribution belongs to \textbf{Exponential family} for a fixed $r$. The link function used is $g(p)=\ln(1-p)$.  
+Since the binomial negative function count the number of trials necessary before reaching the $r$ failures, we can use it as well for counting events. Also, for a negative binomial law, we have $\mathbb{E}[Y]=\frac{r(1-p)}{p} ; \mathbb{V}[Y]=\frac{r(1-p)}{p^2}$, \textbf{hence we can remove the hypothesis of equal mean and variance}. This is how work the negative binomial regression.
+\subsubsection{Application to our dataset:}
+```{r,results="hide"}
+library(MASS) #contains the glm of negative binomial regression
+
+NegBinModel=glm.nb(new_deaths_per_million~as.factor(Year)+
+                as.factor(Quarter)+new_cases_per_million+
+                +vaccinated_per_million+aged_70_older+stringency_index+HDI
+                +PctSmoker,data=EuropeLarge)
+summary(NegBinModel)
+```
+![summary test.](NegBinSummary.png)
+```{r}
+MSE(NegBinModel)
+```
+It is interesting to notice that the MSE is higher than on Poisson regression.  
+Let's plot the same graphs than for Poisson regression
+\textbf{Fitted vs real values}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+data.frame(real=EuropeLarge$new_deaths_per_million,fitted=NegBinModel$fitted.values)%>%
+    ggplot(aes(x=real,y=fitted))+geom_jitter()+geom_abline(intercept = 0,slope=1,col="blue")+
+    labs(title="Real VS fitted number of deaths using neg bin regression",x="Real values",y="Fitted values")
+```
+For low values, we can observe similarities with the Poisson regression. However, it seems to be a little better for bigger values, even if it is still not perfect.
+\textbf{Quality check of residuals}
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+data.frame(residual=residuals(NegBinModel),real=NegBinModel$fitted.values)%>%
+  ggplot(aes(x=real,y=residual))+geom_jitter()+geom_abline(intercept = 0,slope=0,col="black",linetype="dashed")+
+  labs(title="Residual plot for number of deaths per million in Europe between 2020 and 2022",x="Real values",y="residuals")
+```
+```{r,echo=FALSE,fig.align='center',fig.dim=c(8,4)}
+ResPlot2=data.frame(residual=residuals(NegBinModel))%>%
+  ggplot(aes(x=residual))+geom_density(col="blue")+
+  labs(title="Estimated kernel density of residuals",x="residuals",y="density")
+
+a=sd(residuals(NegBinModel))
+b=mean(residuals(NegBinModel))
+ResPlot3=data.frame(residual=residuals(NegBinModel))%>%
+  ggplot(aes(sample=residual))+stat_qq(col='blue')+
+  geom_abline(intercept = b,slope=a,col='black')+
+  labs(title="QQPlot of residuals",x="theorical",y="observed")
+grid.arrange(ResPlot2,ResPlot3,nrow=1,ncol=2)
+```
+Let's do also the KS test:
+```{r}
+residual=(residuals(NegBinModel)-mean(residuals(NegBinModel)))/sd(residuals(NegBinModel))
+ks.test(residual,"pnorm")
+```
+Our residuals seems also better, it looks like they are following a normal distribution. We can also see the independence and homoscedasticity of our residuals.
