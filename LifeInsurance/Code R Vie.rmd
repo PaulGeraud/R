@@ -1,0 +1,123 @@
+---
+
+title: "Code R Vie"
+author: "Paul Géraud"
+date: "2024-02-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+```
+
+# Importation des données
+
+```{r}
+data=read.csv("Ensemble-deces.csv",sep=",")
+```
+## Nettoyage
+```{r}
+data=data%>%
+  select(-X)%>%
+  mutate(datenaiss=as.numeric(substr(datenaiss,1,4)),datedeces=as.numeric(substr(datedeces,1,4)),duree_vie=datedeces-datenaiss,
+         sexe=ifelse(sexe==1,"H","F"))%>%
+  drop_na()%>%
+  filter(duree_vie>=0&duree_vie<=120&datedeces>=1970)
+
+
+Resume_age=data%>%
+  group_by(sexe)%>%
+  summarise(sexe=first(sexe),AgeMoy=mean(duree_vie,na.rm=TRUE))
+```
+
+
+# Premières visualisations
+
+## Distribution de l'age de la population unisexe
+
+```{r}
+ggplot(data, aes(x = duree_vie)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+EvolAge=data%>%
+  arrange(datedeces)%>%
+  group_by(datedeces,sexe)%>%
+  summarise(annee=last(datedeces),sexe=last(sexe),
+            AgeMoy=mean(duree_vie))%>%
+  ungroup()
+
+EvolAge%>%
+  ggplot(aes(x=annee,y=AgeMoy,col=sexe))+geom_line()+geom_point(size=2,shape=4)
+  labs(title="Evolution de l'âge moyen au cours du temps")
+```
+
+
+```{r}
+```
+On observe que l'année 1970 et 1971 sont aberrantes. On va donc les supprimer de notre base de donnée
+```{r}
+data=data%>%
+  filter(datedeces>=1972)
+```
+Refaisons le meme graphe
+
+```{r}
+EvolAge=data%>%
+  arrange(datedeces)%>%
+  group_by(datedeces,sexe)%>%
+  summarise(annee=last(datedeces),sexe=last(sexe),
+            AgeMoy=mean(duree_vie))%>%
+  ungroup()
+
+EvolAge%>%
+  ggplot(aes(x=annee,y=AgeMoy,col=sexe))+geom_line()+geom_point(size=2,shape=4)
+  labs(title="Evolution de l'âge moyen au cours du temps")
+```
+```{r}
+ggplot(data, aes(x = duree_vie)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()
+```
+## Pyramide des décès selon le sexe
+```{r}
+histH=data%>%
+  filter(sexe=="H")%>%
+  ggplot(aes(x = duree_vie)) +
+  geom_histogram(binwidth = 5, fill = "lightblue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès chez\nles hommes",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()+ coord_flip()+scale_y_reverse()+
+  theme(axis.title.y = element_blank(),axis.text.y = element_blank())
+
+histF=data%>%
+  filter(sexe=="F")%>%
+  ggplot(aes(x = duree_vie)) +
+  geom_histogram(binwidth = 5, fill = "lightpink", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès chez\nles femmes",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()+ coord_flip()
+grid.arrange(histH,histF,ncol=2)
+rm(histF,histH)
+```
+
