@@ -68,8 +68,6 @@ EvolAge%>%
 ```
 
 
-```{r}
-```
 On observe que l'année 1970 et 1971 sont aberrantes. On va donc les supprimer de notre base de donnée
 ```{r}
 data=data%>%
@@ -97,10 +95,22 @@ ggplot(data, aes(x = duree_vie)) +
        y = "Nombre de personnes") +
   theme_minimal()
 ```
+
+
+# Segmentation selon le sexe
+
+```{r}
+dataH=data%>%
+  filter(sexe=="H")%>%
+  select(-sexe)
+dataF=data%>%
+  filter(sexe=="F")%>%
+  select(-sexe)
+rm(data)
+```
 ## Pyramide des décès selon le sexe
 ```{r}
-histH=data%>%
-  filter(sexe=="H")%>%
+histH=dataH%>%
   ggplot(aes(x = duree_vie)) +
   geom_histogram(binwidth = 5, fill = "lightblue", color = "black", alpha = 0.7) +
   labs(title = "Répartition de l'âge de décès chez\nles hommes",
@@ -109,8 +119,7 @@ histH=data%>%
   theme_minimal()+ coord_flip()+scale_y_reverse()+
   theme(axis.title.y = element_blank(),axis.text.y = element_blank())
 
-histF=data%>%
-  filter(sexe=="F")%>%
+histF=dataF%>%
   ggplot(aes(x = duree_vie)) +
   geom_histogram(binwidth = 5, fill = "lightpink", color = "black", alpha = 0.7) +
   labs(title = "Répartition de l'âge de décès chez\nles femmes",
@@ -119,5 +128,23 @@ histF=data%>%
   theme_minimal()+ coord_flip()
 grid.arrange(histH,histF,ncol=2)
 rm(histF,histH)
+```
+# Segmentation selon le sexe et l'année de naissance
+
+```{r}
+uniqueH=sort(unique(dataH$datenaiss))
+dataHByNaissance=dataH%>%
+  group_split(datenaiss)
+list2env(setNames(dataHByNaissance, paste0("H",uniqueH)), envir = .GlobalEnv)
+rm(dataHByNaissance)
+uniqueF=sort(unique(dataF$datenaiss))
+dataFByNaissance=dataF%>%
+  group_split(datenaiss)
+list2env(setNames(dataFByNaissance, paste0("F",uniqueF)), envir = .GlobalEnv)
+rm(dataFByNaissance)
+```
+
+```{r}
+
 ```
 
