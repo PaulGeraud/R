@@ -1,0 +1,1112 @@
+---
+
+title: "Code R Vie"
+author: "Paul Géraud"
+date: "2024-02-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+library(data.table)
+library(writexl)
+library(demography)
+library(plotly)
+#library(plot3D)
+#library(rgl)
+#library(plot3Drgl)
+library(TSstudio)
+library(urca)
+```
+
+# Importation des données
+
+```{r}
+data=fread("Ensemble-deces.csv",sep=",")
+```
+## Nettoyage
+```{r}
+data=data%>%
+  select(-V1)%>%
+  mutate(datenaiss=as.numeric(substr(datenaiss,1,4)),datedeces=as.numeric(substr(datedeces,1,4)),duree_vie=datedeces-datenaiss,
+         sexe=ifelse(sexe==1,"H","F"))%>%
+  drop_na()%>%
+  filter(duree_vie>=0&duree_vie<=120&datedeces>=1970&datenaiss>=1902)
+
+
+Resume_age=data%>%
+  group_by(sexe)%>%
+  summarise(sexe=first(sexe),AgeMoy=mean(duree_vie,na.rm=TRUE))
+```
+
+
+# Premières visualisations
+
+## Distribution de l'age de la population unisexe
+
+```{r}
+ggplot(data, aes(x = duree_vie)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+EvolAge=data%>%
+  arrange(datedeces)%>%
+  group_by(datedeces,sexe)%>%
+  summarise(annee=last(datedeces),sexe=last(sexe),
+            AgeMoy=mean(duree_vie))%>%
+  ungroup()
+
+EvolAge%>%
+  ggplot(aes(x=annee,y=AgeMoy,col=sexe))+geom_line()+geom_point(size=2,shape=4)
+  labs(title="Evolution de l'âge moyen au cours du temps")
+```
+
+
+On observe que l'année 1970 et 1971 sont aberrantes. On va donc les supprimer de notre base de donnée. Nous allons même considérer que les années après 1975 pour éviter des problèmes de censure à droite
+```{r}
+data=data%>%
+  filter(datedeces>=1999)
+```
+Refaisons le meme graphe
+
+```{r}
+EvolAge=data%>%
+  arrange(datedeces)%>%
+  group_by(datedeces,sexe)%>%
+  summarise(annee=last(datedeces),sexe=last(sexe),
+            AgeMoy=mean(duree_vie))%>%
+  ungroup()
+
+EvolAge%>%
+  ggplot(aes(x=annee,y=AgeMoy,col=sexe))+geom_line()+geom_point(size=2,shape=4)
+  labs(title="Evolution de l'âge moyen au cours du temps")
+```
+```{r}
+ggplot(data, aes(x = duree_vie)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data, aes(x = duree_vie, y = factor(sexe), fill = stat(count/sum(count)))) +
+  stat_bin_2d() +
+  labs(title = "Diagramme de Lexis", x = "Âge", y = "Sexe", fill = "Proportion")
+```
+
+# Segmentation selon le sexe
+
+```{r}
+dataH=data%>%
+  filter(sexe=="H")%>%
+  select(-sexe)
+dataF=data%>%
+  filter(sexe=="F")%>%
+  select(-sexe)
+#rm(data)
+```
+## Pyramide des décès selon le sexe
+```{r}
+histH=dataH%>%
+  ggplot(aes(x = duree_vie)) +
+  geom_histogram(binwidth = 5, fill = "lightblue", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès chez\nles hommes",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()+ coord_flip()+scale_y_reverse()+
+  theme(axis.title.y = element_blank(),axis.text.y = element_blank())
+
+histF=dataF%>%
+  ggplot(aes(x = duree_vie)) +
+  geom_histogram(binwidth = 5, fill = "lightpink", color = "black", alpha = 0.7) +
+  labs(title = "Répartition de l'âge de décès chez\nles femmes",
+       x = "Âge",
+       y = "Nombre de personnes") +
+  theme_minimal()+ coord_flip()
+grid.arrange(histH,histF,ncol=2)
+rm(histF,histH)
+```
+# Segmentation selon le sexe et l'année de naissance
+
+## Evaluation du nombre de personne par age
+
+
+```{r}
+uniqueH=sort(unique(dataH$datenaiss))
+dataHByNaissance=dataH%>%
+  group_split(datenaiss)
+list2env(setNames(dataHByNaissance, paste0("H",uniqueH)), envir = .GlobalEnv)
+rm(dataHByNaissance)
+uniqueF=sort(unique(dataF$datenaiss))
+dataFByNaissance=dataF%>%
+  group_split(datenaiss)
+list2env(setNames(dataFByNaissance, paste0("F",uniqueF)), envir = .GlobalEnv)
+rm(dataFByNaissance)
+```
+
+```{r}
+grid.arrange(
+  dataH%>%
+    ggplot(aes(x=datenaiss))+geom_histogram(fill="lightblue",col="black",binwidth = 1)+
+    labs(title="Répartition des années de naissances des hommes morts entre 1900 et 2022",x="date de naissance",y="Nombre de morts")+xlim(1880,2023)+
+    scale_x_continuous(breaks = seq(1880, 2023, by = 10)),
+  dataF%>%
+    ggplot(aes(x=datenaiss))+geom_histogram(fill="lightpink",col="black",binwidth = 1)+
+    labs(title="Répartition des années de naissances des femmes mortes entre 1900 et 2022",x="date de naissance",y="Nombre de morts")+xlim(1880,2023)+
+    scale_x_continuous(breaks = seq(1880, 2023, by = 10)),
+  nrow=2
+)
+```
+Ce graphique 
+# Problèmes de censures:  
+La période d'observation étant de 1972 à 2022, nous sommes confrontés à deux types de censure:  
+* Censure à gauche : Les personnes nées avant 1970 sont présents de base dans le portefeuille mais il est impossible de connaitre le nombre de naissance exact avant chaque date de naissance. Ce problème va être contourné en ajoutant des données supplémentaires. Nous allons d'abord restreindre notre étude de 1975 à 2022. Ainsi pour les personnes nées avant 1975, nous allons pouvoir nous baser sur un recensement réalisé en 1975, permettant d'obtenir le nombre de personnes vivantes en 1975, pour chaque age et sexe. Pour les personnes après 1975. Il suffira de mettre en t=0 le nombre de personnes nées cette année.
+* Censure à droite: Pour les personnes nées après 1902, ils n'ont pas encore eu le temps d'atteindre l'âge terminal de 120 ans. Ce problème sera adressée plus tard avec l'extrapolation.
+
+
+## Nombre de naissances par années
+```{r}
+NbrNaissances=read.csv("Naissances.csv",sep=";")%>%
+  filter(Annee>=1920)%>%
+  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "Naissances")
+```
+Proba de survie obtenues avec la TH/TF-02 jusqu'à 1972
+```{r}
+probas_deces=fread("ProbaDeces.csv",dec=",",sep=";")%>%
+  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "prob")%>%
+  mutate(Sexe=ifelse(Sexe=="51_p_x_F","F","H"))
+```
+Proba de survie obtenues avec la PF/PM 60 64
+```{r}
+#probas_deces6064=fread("ProbaDeces6064.csv",dec=",",sep=";")%>%
+#  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "prob")%>%
+#  mutate(Sexe=ifelse(Sexe=="px_F","F","H"))
+```
+Proba de survie obtenues avec la TH/TF-02 jusqu'à 1999
+```{r}
+#probas_deces99=fread("ProbaDeces99.csv",dec=",",sep=";")%>%
+#  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "prob")%>%
+#  mutate(Sexe=ifelse(Sexe=="78_p_x_F","F","H"))
+```
+
+Proba de survie obtenues avec la TH/TF-02 jusqu'à 1999 choqué de 10% 
+```{r}
+#probas_deces99=fread("ProbaDeces99_10.csv",dec=",",sep=";")%>%
+#  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "prob")%>%
+#  mutate(Sexe=ifelse(Sexe=="78_p_x_F","F","H"))
+```
+Recensement 1999 complété des naissances jusqu'à 2022
+```{r}
+RN=fread("RecensementGene1999.csv")%>%
+  pivot_longer(cols=2:3,names_to = "Sexe",values_to = "EnVie")
+```
+
+
+Création des taux bruts
+```{r}
+CreerTable=function(dataset,annee,sexe)
+{
+  #pour les années supérieure à 1999 on se réfère au nombre de naissances
+  if(annee>=1999)
+  {
+    l0=filter(NbrNaissances,Annee==annee,Sexe==sexe)$Naissances
+  }
+  else #pour les années inférieure à 1999, nombre de naissances probabilisés par les probabilités de survie
+  {
+    l0=round(filter(NbrNaissances,Annee==annee,Sexe==sexe)$Naissances*filter(probas_deces99,Annee==annee,Sexe==sexe)$prob)
+  }
+  dataset = dataset %>%
+  arrange(duree_vie) %>%
+  group_by(duree_vie) %>%
+  summarise(dx = n()) %>%
+  ungroup() %>%
+  mutate(lx = l0,lx_N=100000)%>%
+  rename(age=duree_vie)
+  ratio=dataset$lx_N[1]/dataset$lx[1]
+  #print(annee)
+  dataset=dataset%>%
+    mutate(lx=lx-lag(cumsum(dx),default=0),lx_N=round(lx*ratio),q_x=dx/lx,mu_x=dx/((lx+lead(lx,default=last(lx)))/2),
+          tx_inst=-log(1-q_x))
+  return(dataset)
+}
+```
+
+```{r}
+CreerTableR=function(dataset,annee,sexe)
+{
+  l0=filter(RN,Annee==annee,Sexe==sexe)$EnVie
+  dataset = dataset %>%
+  arrange(duree_vie) %>%
+  group_by(duree_vie) %>%
+  summarise(dx = n()) %>%
+  ungroup() %>%
+  mutate(lx = l0,lx_N=100000)%>%
+  rename(age=duree_vie)
+  ratio=dataset$lx_N[1]/dataset$lx[1]
+  #print(annee)
+  dataset=dataset%>%
+    mutate(lx=lx-lag(cumsum(dx),default=0),lx_N=round(lx*ratio),q_x=dx/lx,mu_x=dx/((lx+lead(lx,default=last(lx)))/2),
+          tx_inst=-log(1-q_x))
+  return(dataset)
+}
+```
+
+
+
+L'appliquer à tous les dataset
+```{r}
+#Hommes
+MyData=mget(paste0("H", 1920:2022))
+for (i in 1920:2022) 
+{
+  
+  data_name = names(MyData)[i-1920+1]
+  #print(paste0("H",i))
+  #MyData[[data_name]] = CreerTable(MyData[[data_name]],i,"H")
+  MyData[[data_name]] = CreerTableR(MyData[[data_name]],i,"H")
+}
+list2env(MyData, envir = .GlobalEnv)
+
+
+#Femmes
+MyData=mget(paste0("F", 1920:2022))
+for (i in 1920:2022) 
+{
+  data_name = names(MyData)[i-1920+1]
+  #print(names(MyData)[i])
+  #MyData[[data_name]] = CreerTable(MyData[[data_name]],i,"F")
+  MyData[[data_name]] = CreerTableR(MyData[[data_name]],i,"F")
+}
+list2env(MyData, envir = .GlobalEnv)
+rm(MyData)
+```
+# Conversion en un fichier Excel
+
+## pour les hommes
+
+```{r} 
+age<- data.frame(Age = 0:120)
+annees <- data.frame(Annee = 1920:2022)
+TGH <- data.frame(matrix(nrow = nrow(age), ncol = nrow(annees) + 1))
+colnames(TGH) <- c("Age", as.character(annees$Annee))
+TGH$Age <- age$Age
+for (annee in 1920:2022) 
+  {
+    nom_table <- paste0("H", annee)
+    donnees_table <- get(nom_table)
+    age_debut <- min(donnees_table$age)
+    age_fin <- max(donnees_table$age)
+    col_annee <- as.character(annee)
+    TGH[, col_annee] <- ifelse(TGH$Age >= age_debut & TGH$Age <= age_fin,
+                                   donnees_table$lx_N[match(TGH$Age, donnees_table$age)],
+                                   TGH[, col_annee])
+}
+write_xlsx(list(TGH21 = TGH),path="D:/R/Life/Output/TGH22.xlsx")
+```
+
+## pour les femmes
+```{r}
+age <- data.frame(Age = 0:120)
+annees <- data.frame(Annee = 1920:2022)
+TGF <- data.frame(matrix(nrow = nrow(age), ncol = nrow(annees) + 1))
+colnames(TGF) <- c("Age", as.character(annees$Annee))
+TGF$Age <- age$Age
+for (annee in 1920:2022) 
+  {
+    nom_table <- paste0("F", annee)
+    donnees_table <- get(nom_table)
+    age_debut <- min(donnees_table$age)
+    age_fin <- max(donnees_table$age)
+    col_annee <- as.character(annee)
+    TGF[, col_annee] <- ifelse(TGF$Age >= age_debut & TGF$Age <= age_fin,
+                                   donnees_table$lx_N[match(TGF$Age, donnees_table$age)],
+                                   TGF[, col_annee])
+}
+write_xlsx(list(TGF21 = TGF),path="D:/R/Life/Output/TGF22.xlsx")
+```
+
+# Excel pour les taux de deces
+
+## pour les hommes
+```{r}
+age <- data.frame(Age = 0:120)
+annees <- data.frame(Annee = 1920:2022)
+TMH <- data.frame(matrix(nrow = nrow(age), ncol = nrow(annees) + 1))
+colnames(TMH) <- c("Age", as.character(annees$Annee))
+TMH$Age <- age$Age
+for (annee in 1920:2022) 
+  {
+    nom_table <- paste0("H", annee)
+    donnees_table <- get(nom_table)
+    age_debut <- min(donnees_table$age)
+    age_fin <- max(donnees_table$age)
+    col_annee <- as.character(annee)
+    TMH[, col_annee] <- ifelse(TMH$Age >= age_debut & TMH$Age <= age_fin,
+                                   donnees_table$mu_x[match(TMH$Age, donnees_table$age)],
+                                   TMH[, col_annee])
+}
+write_xlsx(list(TMH21 = TMH),path="D:/R/Life/Output/TGH22_DR.xlsx")
+```
+
+## pour les femmes
+```{r}
+age <- data.frame(Age = 0:120)
+annees <- data.frame(Annee = 1920:2022)
+TMF <- data.frame(matrix(nrow = nrow(age), ncol = nrow(annees) + 1))
+colnames(TMF) <- c("Age", as.character(annees$Annee))
+TMF$Age <- age$Age
+for (annee in 1920:2022) 
+  {
+    nom_table <- paste0("F", annee)
+    donnees_table <- get(nom_table)
+    age_debut <- min(donnees_table$age)
+    age_fin <- max(donnees_table$age)
+    col_annee <- as.character(annee)
+    TMF[, col_annee] <- ifelse(TMF$Age >= age_debut & TMF$Age <= age_fin,
+                                   donnees_table$mu_x[match(TMF$Age, donnees_table$age)],
+                                   TMF[, col_annee])
+}
+write_xlsx(list(TMF21 = TMF),path="D:/R/Life/Output/TGF22_DR.xlsx")
+```
+
+#table de quotient de morta par annee d'observation
+```{r}
+TMH_Obs=matrix(nrow=nrow(age),ncol=2022-1999+1)
+TMF_Obs=matrix(nrow=nrow(age),ncol=2022-1999+1)
+rownames(TMH_Obs)=0:120
+colnames(TMH_Obs)=1999:2022
+rownames(TMF_Obs)=0:120
+colnames(TMF_Obs)=1999:2022
+for (j in 1:(ncol(TMH_Obs))) #itérer sur les années d'obs
+{
+  index_gene=81+j
+  for(i in 1:nrow(TMH_Obs)) #itérer sur les ages
+  {
+    TMH_Obs[i,j]=ifelse(index_gene-i>1,TMH[i,index_gene-i],NA)
+    TMF_Obs[i,j]=ifelse(index_gene-i>1,TMF[i,index_gene-i],NA)
+  }
+}
+```
+
+# Fermeture des tables
+
+Nous utilisons l'approche de coale kister
+```{r}
+#fermeture à 120 ans
+TMH_Obs[121,]=1
+TMF_Obs[121,]=1
+for (j in 1:ncol(TMH_Obs))
+{
+  #Calcul des coefficients de Coal Kister
+  g80H=log(TMH_Obs[80,j]/TMH_Obs[65,j])/15
+  g80F=log(TMF_Obs[80,j]/TMF_Obs[65,j])/15
+  sH=-log(TMH_Obs[79,j]+31*g80H)/465
+  sF=-log(TMF_Obs[79,j]+31*g80F)/465
+  #Application sur toute la
+  for(i in 80:120)
+  {
+    TMH_Obs[i,j]=TMH_Obs[i-1,j]*exp(g80H+sH*(i-80))
+    TMF_Obs[i,j]=TMF_Obs[i-1,j]*exp(g80F+sF*(i-80))
+  }
+}
+
+
+```
+
+
+# Lee Carter
+## avec demography
+Il faut les datasets des populations par année d'observation 
+```{r}
+TGH_Obs=matrix(nrow=nrow(age),ncol=2022-1999+1)
+TGF_Obs=matrix(nrow=nrow(age),ncol=2022-1999+1)
+rownames(TGH_Obs)=0:120
+colnames(TGH_Obs)=1999:2022
+rownames(TGF_Obs)=0:120
+colnames(TGF_Obs)=1999:2022
+for (j in 1:(ncol(TGH_Obs))) #itérer sur les années d'obs
+{
+  index_gene=81+j
+  for(i in 1:nrow(TGH_Obs)) #itérer sur les ages
+  {
+    TGH_Obs[i,j]=ifelse(index_gene-i>1,TGH[i,index_gene-i],0)
+    TGF_Obs[i,j]=ifelse(index_gene-i>1,TGH[i,index_gene-i],0)
+  }
+}
+```
+Création des objets demogdata
+```{r}
+#demogH=demogdata(data=TMH_Obs,pop=TGH_Obs,ages=0:120,years=1999:2022,type="mortality",label="TG",name="H")
+#demogF=demogdata(data=TMF_Obs,pop=TGF_Obs,ages=0:120,years=1999:2022,type="mortality",label="TG",name="F")
+```
+Appliquer le modèle de Lee Carter
+```{r}
+#LCH=lca(demogH,adjust = "dt")
+#LCF=lca(demogF,adjust = "dt")
+```
+```{r}
+#ratesLCH=exp(LCH$fitted$y)
+#ratesLCF=exp(LCF$fitted$y)
+```
+
+```{r}
+#fcastLCH=forecast(LCH,20)$rate$H
+```
+
+# Sans utiliser demography
+
+```{r}
+OwnLC=function(death_rates)
+{
+  #convertir en log death_rates
+  DF=log(death_rates)
+  #On suppose que les deaths rates sont bien une matrice rectangulaire
+  #dimension
+  X=nrow(death_rates)+1
+  T=ncol(death_rates)+1
+  #Etape 1 : Estimation des alpha
+  ax=rowSums(DF)/T
+  #Etape 2 : Création de la matrice Z
+  Z=DF-ax
+  #Etape 3 : Décomposition de Z en valeur singulière
+  svdZ=svd(Z)
+  d=svdZ$d
+  u=svdZ$u
+  v=svdZ$v
+  bx=u[,1]/sum(u[,1])
+  #kt=d[1]*sum(u[,1])*v[,1]
+  kt=v[,1]
+  #Etape 4: Fitted Values du modèle de LC sur
+  DR_LC=matrix(nrow=X-1,ncol=T-1)
+  rownames(DR_LC)=0:(X-2)
+  colnames(DR_LC)=1999:(1999+T-2)
+  for(i in 1:X-2)
+  {
+    for(j in 1:T-2)
+    {
+      DR_LC[i,j]=exp(ax[i]+bx[i]*kt[j])
+    }
+  }
+  return(list(FittedDR = DR_LC, ax = ax, bx = bx, kt = kt))
+}
+```
+
+```{r}
+LCH2=OwnLC(TMH_Obs)
+LCF2=OwnLC(TMF_Obs)
+```
+
+```{r}
+#persp3D(x=seq(0:120),y=seq(1999:2022),z=TMH_Obs,main="Taux bruts",colvar=TMH_Obs,
+#        zlab="value of function",clab=c("Values","Numbers"),
+#        ticktype="detailed",nticks=1
+#)
+#plotrgl(lighting = TRUE, smooth = TRUE)
+```
+```{r}
+#persp3D(x=seq(0:120),y=seq(1999:2022),z=DR_LC,main="Taux bruts",colvar=TMH_Obs,
+#        zlab="value of function",clab=c("Values","Numbers"),
+#        ticktype="detailed",nticks=1
+#)
+#plotrgl(lighting = TRUE, smooth = TRUE)
+```
+Avec plotly
+```{r}
+
+fig=plot_ly(z= ~TMH_Obs[1:(nrow(TMH_Obs)-1),])%>%add_surface(colorbar = list(title = "Taux de mortalité bruts"))%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 20, by = 5), ticktext = seq(2000, 2020, by = 5)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    )) 
+fig
+```
+
+```{r}
+
+fig=plot_ly(z= ~LCH2$FittedDR[1:(nrow(LCH2$FittedDR)-1),])%>%add_surface(colorbar = list(title = "Taux de mortalité"))%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 20, by = 5), ticktext = seq(2000, 2020, by = 5)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    )) 
+fig
+```
+
+```{r}
+
+fig=plot_ly(z= ~TMF_Obs[1:(nrow(TMF_Obs)-1),])%>%add_surface(colorbar = list(title = "Taux de mortalité bruts"))%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 20, by = 5), ticktext = seq(2000, 2020, by = 5)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    )) 
+fig
+```
+
+```{r}
+
+fig=plot_ly(z= ~LCF2$FittedDR[1:(nrow(LCF2$FittedDR)-1),])%>%add_surface(colorbar = list(title = "Taux de mortalité"))%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 20, by = 5), ticktext = seq(2000, 2020, by = 5)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    )) 
+fig
+```
+
+Il faut extrapoler les kt
+```{r}
+kH=ts(LCH2$kt,start=1999)
+kF=ts(LCF2$kt,start=1999)
+
+```
+```{r}
+ts_plot(kH,title="Evolution des coefficients kt au cours du temps pour les hommes")
+```
+
+```{r}
+ts_plot(kF,title="Evolution des coefficients kt au cours du temps pour les femmes")
+```
+
+```{r}
+dkH=diff(kH,lag=1)
+dkF=diff(kF,lag=1)
+```
+
+```{r}
+ts_plot(dkH,title="Evolution des coefficients kt différencié une fois pour les hommes")
+```
+
+```{r}
+ts_plot(dkF,title="Evolution des coefficients kt différencié une fois pour les femmmes")
+```
+```{r}
+par(mfrow = c(2, 2))
+acf(dkH,type="correlation", lag.max=50,
+    main="ACF k homme",na.action = na.pass)
+acf(dkF,type="correlation", lag.max=50,
+    main="ACF k femme",na.action = na.pass)
+acf(dkH,type="partial", lag.max=50,
+    main="PACF k homme",na.action = na.pass)
+acf(dkF,type="partial", lag.max=50,
+    main="PACF k femme",na.action = na.pass)
+```
+Test ADF
+```{r}
+testH=ur.df(dkH,type="trend",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+```{r}
+testH=ur.df(dkH,type="drift",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+```{r}
+testH=ur.df(dkH,type="none",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+```{r}
+testF=ur.df(dkF,type="trend",selectlags = "BIC")
+print(testF@teststat)
+print(testF@cval[,"5pct"])
+```
+
+Avec régression linéaire
+```{r}
+LinModH=tslm(kH~trend+0)
+LinModF=tslm(kF~trend+0)
+kHRes=LinModH$residuals
+kFRes=LinModF$residuals
+kHDR=diff(kHRes)
+kFDR=diff(kFRes)
+```
+
+```{r}
+ts_plot(kFRes,title="Evolution des résidus de k pour les femmes")
+```
+
+```{r}
+ts_plot(kHRes,title="Evolution des résidus de k pour les hommes")
+```
+
+```{r}
+testH=ur.df(kHRes,type="trend",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+
+```{r}
+testH=ur.df(kHRes,type="drift",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+
+```{r}
+testH=ur.df(kHRes,type="none",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+
+```{r}
+ts_plot(kFDR,title="Evolution des résidus différencié une fois pour les femmes")
+```
+
+```{r}
+ts_plot(kHDR,title="Evolution des résidus différencié une fois pour les hommes")
+```
+Hommes
+```{r}
+testH=ur.df(kHDR,type="trend",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+
+```{r}
+testH=ur.df(kHDR,type="drift",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+
+```{r}
+testH=ur.df(kHDR,type="none",selectlags = "BIC")
+print(testH@teststat)
+print(testH@cval[,"5pct"])
+```
+Femmes
+```{r}
+testF=ur.df(kFDR,type="trend",selectlags = "BIC")
+print(testF@teststat)
+print(testF@cval[,"5pct"])
+```
+
+```{r}
+testF=ur.df(kFDR,type="drift",selectlags = "BIC")
+print(testF@teststat)
+print(testF@cval[,"5pct"])
+```
+
+```{r}
+testF=ur.df(kFDR,type="none",selectlags = "BIC")
+print(testF@teststat)
+print(testF@cval[,"5pct"])
+```
+
+On en conclut à de la stationnarité sur les résidus différenciés une fois
+
+## Fit d'un modèle
+On va considérer des modèles allant de ARIMA(0,1,0) à ARIMA(4,1,4) en utilisant le critère AIC
+
+### Pour les femmes
+```{r}
+aicF=matrix(0,5,5)
+#On procède par balayage
+for(p in 1:5) #ligne AR
+{
+  for(q in 1:5) #colonne MA
+  {
+    #Simulation ARMA(p,q) à partir du taux de chômage puis calcul du BIC
+    MyModel=arima(kFDR,order=c(p-1,0,q-1))
+    aicF[p,q]=AIC(MyModel)
+  }
+}
+#recherche du modèle minimisant le BIC.
+Model_AICF = which(aicF == min(aicF), arr.ind = TRUE)
+cat("Pour les femmes p=",Model_AICF[1]-1," q=",Model_AICF[2]-1)
+```
+Nous retenons donc un ARIMA(1,1,2) pour les femmes
+
+```{r}
+ARIMA_F=arima(kFRes,order=c(1,1,2))
+```
+
+### Pour les hommes
+
+```{r}
+aicH=matrix(0,5,5)
+#On procède par balayage
+for(p in 1:5) #ligne AR
+{
+  for(q in 1:5) #colonne MA
+  {
+    #Simulation ARMA(p,q) à partir du taux de chômage puis calcul du BIC
+    MyModel=arima(kHDR,order=c(p-1,0,q-1))
+    aicH[p,q]=AIC(MyModel)
+  }
+}
+#recherche du modèle minimisant le BIC.
+Model_AICH = which(aicH == min(aicH), arr.ind = TRUE)
+cat("Pour les hommes p=",Model_AICH[1]-1," q=",Model_AICH[2]-1)
+```
+Nous retenons donc un ARIMA(0,1,2) pour les hommes. Par soucis d'homgénéité avec les femmes , nous allons cependant prendre également un ARIMA(1,1,2)
+
+Calibrage du modele
+```{r}
+ARIMA_H=arima(kHRes,order=c(1,1,2))
+```
+
+
+## Tests de pertinence du modele
+
+### Tests de significativité
+```{r}
+t_test=function(Model)
+{
+  #extraire les coefs
+  coefs=coef(Model)
+  #extraire les standarts errors
+  se=sqrt(diag(Model$var.coef))
+  n=length(coefs)
+  #Calcul t stat
+  t_vals=rep(0,n)
+  for (i in 1:n)
+  {
+    t_vals[i]=coefs[i]/se[i]
+  }
+  #rejeter H0
+  rejectH0=ifelse(abs(t_vals)<1.96,"NON","OUI")
+  df=data.frame(coefs=coefs,se=se,t=t_vals,rejectH0=rejectH0)
+  return(df)
+}
+```
+Pour les hommes
+```{r}
+resultat=t_test(ARIMA_H)
+print(resultat)
+```
+Pour les femmes
+```{r}
+resultat=t_test(ARIMA_F)
+print(resultat)
+```
+Graphe réel vs prédit
+Residual Plot
+Normalité résidus (qq plot, densités, tests,...)
+Stationnarité des résidus
+Hétéroscédasticité des résidus (effet ARCH)
+
+```{r}
+RESH=data.frame(res=ARIMA_H$residuals,fitted=fitted(ARIMA_H))
+RESF=data.frame(res=ARIMA_F$residuals,fitted=fitted(ARIMA_F))
+grid.arrange(
+  RESH%>%ggplot(aes(x=fitted,y=res))+geom_point(col="blue")+
+    labs(title="Residual plot ARIMA Hommes",x="Prédit",y="Résidus"),
+  RESF%>%ggplot(aes(x=fitted,y=res))+geom_point(col="red")+
+    labs(title="Residual plot ARIMA Femmes",x="Prédit",y="Résidus"),
+  ncol=2
+)
+```
+```{r}
+grid.arrange(
+  RESH%>%ggplot(aes(x=res))+geom_density(col="blue")+
+    labs(title="Densité des résidus ARIMA Hommes",x="Prédit",y="Résidus"),
+  RESF%>%ggplot(aes(x=res))+geom_density(col="red")+
+    labs(title="Densité des résidus ARIMA Femmes",x="Prédit",y="Résidus"),
+  ncol=2
+)
+```
+Pas normal
+
+Prédictions
+
+```{r}
+predictionH=forecast(ARIMA_H,h=120)
+plot(predictionH,col="blue",main="Prediciton sur les 120 prochains ans Hommes")
+```
+```{r}
+predictionF=forecast(ARIMA_F,h=120)
+plot(predictionF,col="red",main="Prediciton sur les 120 prochains ans Femmes")
+```
+# Reconstitution de la série originelle
+```{r}
+enhanced_kH=ts(c(LCH2$kt,c(25:144)*LinModH$coefficients[1]+predictionH$mean),start=1999)
+enhanced_kF=ts(c(LCF2$kt,c(25:144)*LinModF$coefficients[1]+predictionF$mean),start=1999)
+```
+```{r}
+ts_plot(enhanced_kH,title="Projection horizon 2142 pour les hommes")
+```
+
+```{r}
+ts_plot(enhanced_kF,title="Projection horizon 2142 pour les femmes")
+```
+
+Ce que le modèle prévoit, c'est une décroissance linéaire du taux de mortalité au cours du temps. C'est bruité chez les femmes
+On peut se demander la pertinence de cette projection et du modèle ARIMA. On peut bien le voir mais c'est un exercice compliqué de projeter sur un horizon 100 ans avec seulement 24 années d'observations. C'est cependant le meilleur que l'on puisse faire.
+
+# Application du modèle de Lee Carter horizon 2142
+
+```{r}
+LCH_Proj=matrix(nrow=121,ncol=144)
+rownames(LCH_Proj)=0:120
+colnames(LCH_Proj)=1999:2142
+LCF_Proj=matrix(nrow=121,ncol=144)
+rownames(LCF_Proj)=0:120
+colnames(LCF_Proj)=1999:2142
+for(i in 1:121) #itérer sur les âges
+{
+  for(j in 1:144) #itérer sur les années d'observations
+  {
+    LCH_Proj[i,j]=exp(LCH2$ax[i]+LCH2$bx[i]*enhanced_kH[j])
+    LCF_Proj[i,j]=exp(LCF2$ax[i]+LCF2$bx[i]*enhanced_kF[j])
+  }
+}
+```
+Graphe femmes
+```{r}
+
+fig=plot_ly(z= ~LCF_Proj)%>%add_surface()%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 144, by = 20), ticktext = seq(1999, 2142, by = 20)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    ),
+    title = "Taux de mortalité avec Lee Carter projeté Femmes") 
+fig
+```
+Graphe Hommes
+```{r}
+
+fig=plot_ly(z= ~LCH_Proj)%>%add_surface()%>%layout(scene=list(xaxis = list(title = "Année d'observation",tickvals = seq(0, 144, by = 20), ticktext = seq(1999, 2142, by = 20)),
+      yaxis = list(title = "Ages"),
+      zaxis = list(title = "Quotients de mortalité")
+    ),
+    title = "Taux de mortalité avec Lee Carter projeté Hommes") 
+fig
+```
+
+# Repasser au format générationnel
+## Taux de mortalité
+```{r}
+TMH_LC=matrix(nrow=nrow(TGH),ncol=ncol(TGH)-1)
+TMF_LC=matrix(nrow=nrow(TGF),ncol=ncol(TGF)-1)
+rownames(TMH_LC)=0:120
+colnames(TMH_LC)=1920:2022
+rownames(TMF_LC)=0:120
+colnames(TMF_LC)=1920:2022
+for(j in 1:ncol(TMH_LC))
+{
+  index_gene=80-j
+  for(i in 1:nrow(TMH_LC))
+  {
+    TMH_LC[i,j]=ifelse(i-index_gene<0,NA,LCH_Proj[i,i-index_gene])
+    TMF_LC[i,j]=ifelse(i-index_gene<0,NA,LCF_Proj[i,i-index_gene])
+  }
+}
+```
+
+## Ecriture sur Excel
+### Femmes
+```{r}
+TMF_LC_df=as.data.frame(TMF_LC,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TMF_LC) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TMF = TMF_LC_df),path="D:/R/Life/Output/TGF22_DR_LEE_CARTER.xlsx")
+```
+### Hommes
+```{r}
+TMH_LC_df=as.data.frame(TMH_LC,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TMH_LC) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TMH = TMH_LC_df),path="D:/R/Life/Output/TGH22_DR_LEE_CARTER.xlsx")
+```
+
+## Nombre de vivants
+
+```{r}
+TGH_LC=matrix(nrow=nrow(TMH_LC),ncol=ncol(TMH_LC))
+TGF_LC=matrix(nrow=nrow(TMF_LC),ncol=ncol(TMF_LC))
+rownames(TGH_LC)=0:120
+colnames(TGH_LC)=1920:2022
+rownames(TGF_LC)=0:120
+colnames(TGF_LC)=1920:2022
+for(j in 1:ncol(TGH_LC)) #par génération
+{
+  index_gene=80-j
+  first=TRUE
+  for(i in 1:nrow(TGH_LC)) #par année
+  {
+    if(i-index_gene==0&&first)#i!=1
+    {
+      TGH_LC[i+1,j]=10^5
+      TGF_LC[i+1,j]=10^5
+      first=FALSE
+    }
+    else
+    {
+      if(index_gene<=0&&i==1)
+      {
+        TGH_LC[i,j]=10^5
+        TGF_LC[i,j]=10^5
+        first=FALSE
+      }
+    }
+    
+    if(i>1&&!is.na(TGH_LC[i-1,j]))
+    {
+      TGH_LC[i,j]=TGH_LC[i-1,j]*(1-TMH_LC[i-1,j])
+      TGF_LC[i,j]=TGF_LC[i-1,j]*(1-TMF_LC[i-1,j])
+    }
+  }
+}
+TGH_LC=ceiling(TGH_LC)
+TGF_LC=ceiling(TGF_LC)
+```
+
+## Ecriture sur Excel
+
+```{r}
+TGF_LC_df=as.data.frame(TGF_LC,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TGF_LC) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TGF = TGF_LC_df),path="D:/R/Life/Output/TGF22_LEE_CARTER.xlsx")
+
+TGH_LC_df=as.data.frame(TGH_LC,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TGH_LC) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TGH = TGH_LC_df),path="D:/R/Life/Output/TGH22_LEE_CARTER.xlsx")
+```
+
+
+# Table de mortalité choqué en risque longévité
+La formule standart
+```{r}
+TMH_Choc=0.8*TMH_LC
+TMH_Choc[nrow(TMH_Choc),]=1
+TMF_Choc=0.8*TMF_LC
+TMF_Choc[nrow(TMF_Choc),]=1
+```
+
+##Création
+```{r}
+TGH_Choc=matrix(nrow=nrow(TMH_Choc),ncol=ncol(TMH_Choc))
+TGF_Choc=matrix(nrow=nrow(TMF_Choc),ncol=ncol(TMF_Choc))
+rownames(TGH_Choc)=0:120
+colnames(TGH_Choc)=1920:2022
+rownames(TGF_Choc)=0:120
+colnames(TGF_Choc)=1920:2022
+for(j in 1:ncol(TGH_Choc)) #par génération
+{
+  index_gene=80-j
+  first=TRUE
+  for(i in 1:nrow(TGH_Choc)) #par année
+  {
+    if(i-index_gene==0&&first)#i!=1
+    {
+      TGH_Choc[i+1,j]=10^5
+      TGF_Choc[i+1,j]=10^5
+      first=FALSE
+    }
+    else
+    {
+      if(index_gene<=0&&i==1)
+      {
+        TGH_Choc[i,j]=10^5
+        TGF_Choc[i,j]=10^5
+        first=FALSE
+      }
+    }
+    
+    if(i>1&&!is.na(TGH_Choc[i-1,j]))
+    {
+      TGH_Choc[i,j]=TGH_Choc[i-1,j]*(1-TMH_Choc[i-1,j])
+      TGF_Choc[i,j]=TGF_Choc[i-1,j]*(1-TMF_Choc[i-1,j])
+    }
+  }
+}
+
+TGH_Choc=ceiling(TGH_Choc)
+TGF_LC=ceiling(TGF_Choc)
+```
+
+## Ecriture sur Excel
+```{r}
+TMF_Choc_df=as.data.frame(TMF_Choc,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TMF_Choc) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TMF_Choc = TMF_Choc_df),path="D:/R/Life/Output/TMF22_Choc.xlsx")
+
+TMH_Choc_df=as.data.frame(TMH_Choc,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TMH_Choc) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TMH_Choc = TMH_Choc_df),path="D:/R/Life/Output/TMH22_Choc.xlsx")
+
+TGF_Choc_df=as.data.frame(TGF_Choc,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TGF_Choc) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TGF_Choc = TGF_Choc_df),path="D:/R/Life/Output/TGF22_Choc.xlsx")
+
+TGH_Choc_df=as.data.frame(TGH_Choc,col.names=TRUE)%>%
+  mutate(Age=0:(nrow(TGH_Choc) - 1))%>%
+  relocate(Age)
+write_xlsx(list(TGH_Choc = TGH_Choc_df),path="D:/R/Life/Output/TGH22_Choc.xlsx")
+```
+
+
+# Graphes pour le mémoire
+##bruts hommes
+```{r}
+colonnes_selectionnees <- c(1, 7, 12, 17, 22)
+matrice_selectionnee <- TMH_Obs[1:(nrow(TMH_Obs)-1), colonnes_selectionnees]
+selected=as.data.frame(matrice_selectionnee,col.names=TRUE)%>%
+   mutate(Age=0:(nrow(matrice_selectionnee) - 1))%>%
+  relocate(Age)%>%
+  pivot_longer(cols=2:6,names_to = "annees",values_to="qx")%>%
+  arrange(annees,Age)
+
+selected%>%
+  ggplot(aes(x=Age,y=qx,col=annees))+geom_line(size=1)+theme_minimal()+
+  labs(x="Age",y="Taux de mortalité")
+```
+##bruts femmes
+```{r}
+colonnes_selectionnees <- c(1, 7, 12, 17, 22)
+matrice_selectionnee <- TMF_Obs[1:(nrow(TMF_Obs)-1), colonnes_selectionnees]
+selected=as.data.frame(matrice_selectionnee,col.names=TRUE)%>%
+   mutate(Age=0:(nrow(matrice_selectionnee) - 1))%>%
+  relocate(Age)%>%
+  pivot_longer(cols=2:6,names_to = "annees",values_to="qx")%>%
+  arrange(annees,Age)
+
+selected%>%
+  ggplot(aes(x=Age,y=qx,col=annees))+geom_line(size=1)+theme_minimal()+
+  labs(x="Age",y="Taux de mortalité")
+```
+##LC Hommes
+
+```{r}
+colonnes_selectionnees <- c(1, 7, 12, 17, 22)
+matrice_selectionnee <- LCH2$FittedDR[1:(nrow(LCH2$FittedDR)-1), colonnes_selectionnees]
+selected=as.data.frame(matrice_selectionnee,col.names=TRUE)%>%
+   mutate(Age=0:(nrow(matrice_selectionnee) - 1))%>%
+  relocate(Age)%>%
+  pivot_longer(cols=2:6,names_to = "annees",values_to="qx")%>%
+  arrange(annees,Age)
+
+selected%>%
+  ggplot(aes(x=Age,y=qx,col=annees))+geom_line()+theme_minimal()+
+  labs(x="Age",y="Taux de mortalité")
+```
+
+##bruts femmes
+```{r}
+colonnes_selectionnees <- c(1, 7, 12, 17, 22)
+matrice_selectionnee <- LCF2$FittedDR[1:(nrow(LCF2$FittedDR)-1), colonnes_selectionnees]
+selected=as.data.frame(matrice_selectionnee,col.names=TRUE)%>%
+   mutate(Age=0:(nrow(matrice_selectionnee) - 1))%>%
+  relocate(Age)%>%
+  pivot_longer(cols=2:6,names_to = "annees",values_to="qx")%>%
+  arrange(annees,Age)
+
+selected%>%
+  ggplot(aes(x=Age,y=qx,col=annees))+geom_line(size=1)+theme_minimal()+
+  labs(x="Age",y="Taux de mortalité")
+```

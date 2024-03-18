@@ -1,0 +1,276 @@
+---
+title: "Application portefeuille"
+author: "Paul Géraud"
+date: "2024-03-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+library(data.table)
+library(writexl)
+library(readxl)
+library(plotly)
+```
+# Récuparation des tables crées
+```{r}
+TGH22=read_excel("D:/R/Life/Output/TGH22_LEE_CARTER.xlsx")
+TGF22=read_excel("D:/R/Life/Output/TGF22_LEE_CARTER.xlsx")
+TMH22=read_excel("D:/R/Life/Output/TGH22_DR_LEE_CARTER.xlsx")
+TMF22=read_excel("D:/R/Life/Output/TGF22_DR_LEE_CARTER.xlsx")
+```
+## Tables choquées
+```{r}
+TGH22_Choc=read_excel("D:/R/Life/Output/TGH22_Choc.xlsx")
+TGF22_Choc=read_excel("D:/R/Life/Output/TGF22_Choc.xlsx")
+TMH22_Choc=read_excel("D:/R/Life/Output/TMH22_Choc.xlsx")
+TMF22_Choc=read_excel("D:/R/Life/Output/TMF22_Choc.xlsx")
+```
+
+
+# Application à un portefeuille théorique
+
+## Hypothèses retenues
+
+
+* Que des contrats de retraites : cotisation jusqu'à 65 ans non inclus et après rente jusqu'au décès
+* La prime est payée en début d'année, la rente versée en fin d'année
+* Les calculs sont réalisés au 31/12/2023
+* Portefeuille de 10 000 assurés. 50/50 Hommes femmes. L'âge des assurés est distribué entre 25 et 55 ans, âge calculée par différence de millésime (soit des personnes nées entre 1968 et 1998 inclus). L'âge de chaque individu est généré selon une loi normale de moyenne  35, ecart type 5. La distribution de l'âge est identique pour les deux sexes. Les personnes générés en dessous de 25 ans sont ramenés à 25, ceux au dessus de 55 ramenés à 55 ans.
+* Le taux technique est supposé être de 0.50%, identique pour tous les contrats
+* L'assureur propose 3 contrats différents avec chacun un montant de rente différent: un contrat entrée de gamme 3000€ de rente/an, un contrat moyen à 5000€, et un contrat haut de gamme avec 10000€. On suppose que au sein de la population, la distribution de ces contrats sont de respectivement 30%, 50% et 20%. On suppose que cette distribution des contrats est indépendante de l'âge et du sexe de l'assuré. On suppose également qu'assuré souscrit à ce contrat dès son inscription (=âge de départ simulé) et ne change pas de contrat.
+* On va réaliser un total de 100 simulations. D'une simulation à l'autre, on ne changera pas la population de départ (âge de départ,proportion H/F, distribution des différents contrats). Ce qui change d'un scénario à l'autre est l'âge de décès des individus.
+
+## Simulation de la population
+
+### Création de la population de départ.
+Générons 10000 ages avec une loi normale et des sexes uniformes. On retravaille l'âge
+
+```{r}
+sexe=c(rep("H",5000),rep("F",5000))
+sexe=sample(sexe,replace = FALSE)
+age=rnorm(10000,mean=35,sd=5)
+#arrondir
+age=round(age)
+age=ifelse(age<25,25,age)
+age=ifelse(age>55,55,age)
+generation=2023-age
+gamme=c(rep("HdG",2000),rep("MdG",5000),rep("BdG",3000))
+gamme=sample(gamme,replace = FALSE)
+#résume dans un dataframe
+Portefeuille_Standart=data.frame(age_souscription=age,sexe=sexe,contrat=gamme)
+
+```
+
+```{r}
+hist(age)
+```
+### Création des scénarios
+```{r}
+
+GenererScenarioCentral=function(nb_scenarios,sexe,age,generation,gamme,portfolio)
+{
+  #On refait pour chaque scenario de mortalite
+  for(k in 1:nb_scenarios)
+  {
+    cat("iteration n°",k,"\n")
+    #vecteur qui va contenir les ages de décès
+    age_deces=rep(0,10000)
+    for(i in 1:10000)
+    {
+      #recolter les caractéristiques de l'assuré
+      age_i=age[i]
+      sexe_i=sexe[i]
+      generation_i=generation[i]
+      #en fonction du sexe, déterminer quelle table de mortalité utiliser
+      if(sexe_i=="F")
+      {
+        TM=TMF22 
+      }
+      else
+      {
+        TM=TMH22  
+      }
+      #trouver l'index de la generation
+      num_col=generation_i-1920+2
+      #initialisation de l'age de deces
+      age_deces_i=age_i
+      #boolean indiquant que l'assuré est encore en vie
+      en_vie=TRUE
+      #tant que en vie et qu'il a moins de 120 ans(age terminal)
+      while(age_deces_i<120&&en_vie)
+      {
+        #tirage loi uniforme sur [0;1]
+        test=runif(1)
+        #si le tirage est inférieur à la proba de décès cette année, l'assuré décède, sinon il vit un an de plus
+        if(test<TM[age_deces_i,num_col])
+        {
+          en_vie=FALSE  
+        }
+        else
+        {
+          age_deces_i=age_deces_i+1
+        }
+      }
+      #ajout de l'âge de décès simulé
+      age_deces[i]=age_deces_i
+    }
+    #création de la colonne correspondant à ce scénario et ajouter en tant que colonne dans le dataframe
+    col_name=paste("Scenario", k, sep = "_")
+    Portefeuille_Standart[[col_name]]=age_deces
+  }
+}
+```
+
+```{r}
+#Attention, execution très gourmande en ressource!!
+nb_scenarios=500
+#Portefeuille_Standart=GenererScenarioCentral=function(nb_scenarios,sexe,age,generation,gamme,Portefeuille_Standart)
+#write_xlsx(list(Feuille = Portefeuille_Standart),path="D:/R/Life/Output/Portefeuille_Standart.xlsx")
+```
+
+```{r}
+Portefeuille_Standart=read_excel("D:/R/Life/Output/Portefeuille_Standart.xlsx")
+
+```
+### création scénario choqué
+```{r}
+GenererScenarioChoc=function(nb_scenarios,sexe,age,generation,gamme,portfolio)
+{
+  #On refait pour chaque scenario de mortalite
+  for(k in 1:nb_scenarios)
+  {
+    cat("iteration n°",k,"\n")
+    #vecteur qui va contenir les ages de décès
+    age_deces=rep(0,10000)
+    for(i in 1:10000)
+    {
+      #recolter les caractéristiques de l'assuré
+      age_i=age[i]
+      sexe_i=sexe[i]
+      generation_i=generation[i]
+      #en fonction du sexe, déterminer quelle table de mortalité utiliser
+      if(sexe_i=="F")
+      {
+        TM=TMF22_Choc
+      }
+      else
+      {
+        TM=TMH22_Choc
+      }
+      #trouver l'index de la generation
+      num_col=generation_i-1920+2
+      #initialisation de l'age de deces
+      age_deces_i=age_i
+      #boolean indiquant que l'assuré est encore en vie
+      en_vie=TRUE
+      #tant que en vie et qu'il a moins de 120 ans(age terminal)
+      while(age_deces_i<120&&en_vie)
+      {
+        #tirage loi uniforme sur [0;1]
+        test=runif(1)
+        #si le tirage est inférieur à la proba de décès cette année, l'assuré décède, sinon il vit un an de plus
+        if(test<TM[age_deces_i,num_col])
+        {
+          en_vie=FALSE  
+        }
+        else
+        {
+          age_deces_i=age_deces_i+1
+        }
+      }
+      #ajout de l'âge de décès simulé
+      age_deces[i]=age_deces_i
+    }
+    #création de la colonne correspondant à ce scénario et ajouter en tant que colonne dans le dataframe
+    col_name=paste("Scenario", k, sep = "_")
+    Portefeuille_Choque[[col_name]]=age_deces
+  }
+}
+```
+
+```{r}
+#Attention, execution très gourmande en ressource!!
+Portefeuille_Choque=Portefeuille_Standart%>%
+  select(age_souscription,sexe,contrat)
+nb_scenarios=500
+sexe=Base$sexe
+age=Base$age_souscription
+gamme=Base$contrat
+generation=2023-age
+#Portefeuille_Choque=GenererScenarioChoc(nb_scenarios,sexe,age,generation,gamme,Portefeuille_Choque())
+#write_xlsx(list(Feuille = Portefeuille_Standart),path="D:/R/Life/Output/Portefeuille_Choque.xlsx")
+```
+
+# Créations des coefficients de rente viagère
+
+## Identifier la génération à utiliser
+```{r}
+GetGeneration=function(x,sexe,TGH,TGF)
+{
+  generation=2023-x
+  num_col=generation-1920+2
+  if(sexe=="F")
+  {
+    table=TGF  
+  }
+  else
+  {
+    table=TGH  
+  }
+  table=table%>%
+    select(1,num_col)%>%
+    filter(Age>=x)%>%
+    rename(lx=2)
+  return(table)
+}
+```
+```{r}
+test=GetGeneration(2,"H",TGH22,TGF22)
+```
+
+
+
+## Rente viagère à termes payable d'avance différée de s années
+```{r}
+#ok
+s_ai_x=function(table,s,i) #x=age, s=temps du différé, i =taux technique
+{
+  tableC=table%>%
+    mutate(k_p_x=lead(lx,s)/first(lx),v=(1+i)^(-(row_number()-1+s)))%>%
+    drop_na()
+  return(sum(tableC$k_p_x*tableC$v))
+}
+```
+
+```{r}
+test=GetGeneration(50,"H",TGH22,TGF22)
+a=s_ai_x(test,15,0.01)
+print(a)
+```
+## Rente viagère à terme payable d'avance temporaire n années
+
+```{r}
+ai_x_n=function(table,x,n,i)
+{
+  tableC=table%>%
+    filter(Age<=n+x)%>%
+    mutate(k_p_x=lead(lx)/first(lx),v=(1+i)^(-(row_number()-1)))%>%
+    drop_na()
+  tableC=tableC%>%
+    mutate(k_p_x=ifelse(row_number()==1,1,lag(k_p_x)))
+  return(sum(tableC$k_p_x*tableC$v))
+}
+```
+
+```{r}
+test2=GetGeneration(50,"H",TGH22,TGF22)
+a2=ai_x_n(test,50,20,0.01)
+print(a2)
+```
