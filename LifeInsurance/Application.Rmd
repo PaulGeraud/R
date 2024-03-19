@@ -192,6 +192,7 @@ GenererScenarioChoc=function(nb_scenarios,sexe,age,generation,gamme,portfolio)
     col_name=paste("Scenario", k, sep = "_")
     Portefeuille_Choque[[col_name]]=age_deces
   }
+  return(Portefeuille_Choque)
 }
 ```
 
@@ -200,12 +201,12 @@ GenererScenarioChoc=function(nb_scenarios,sexe,age,generation,gamme,portfolio)
 Portefeuille_Choque=Portefeuille_Standart%>%
   select(age_souscription,sexe,contrat)
 nb_scenarios=500
-sexe=Base$sexe
-age=Base$age_souscription
-gamme=Base$contrat
+sexe=Portefeuille_Choque$sexe
+age=Portefeuille_Choque$age_souscription
+gamme=Portefeuille_Choque$contrat
 generation=2023-age
 #Portefeuille_Choque=GenererScenarioChoc(nb_scenarios,sexe,age,generation,gamme,Portefeuille_Choque())
-#write_xlsx(list(Feuille = Portefeuille_Standart),path="D:/R/Life/Output/Portefeuille_Choque.xlsx")
+#write_xlsx(list(Feuille = Portefeuille_Choque),path="D:/R/Life/Output/Portefeuille_Choque.xlsx")
 ```
 
 # Créations des coefficients de rente viagère
@@ -239,11 +240,21 @@ test=GetGeneration(2,"H",TGH22,TGF22)
 
 ## Rente viagère à termes payable d'avance différée de s années
 ```{r}
+# avec différé
+s_aib_x=function(table,s,i) #x=age, s=temps du différé, i =taux technique
+{
+  tableC=table%>%
+    mutate(k_p_x=lead(lx,s)/first(lx),v=(1+i)^(-(row_number()-1+s)))%>%
+    drop_na()
+  return(sum(tableC$k_p_x*tableC$v))
+}
+```
+```{r}
 #ok
 s_ai_x=function(table,s,i) #x=age, s=temps du différé, i =taux technique
 {
   tableC=table%>%
-    mutate(k_p_x=lead(lx,s)/first(lx),v=(1+i)^(-(row_number()-1+s)))%>%
+    mutate(k_p_x=lead(lx,s+1)/first(lx),v=(1+i)^(-(row_number()+s)))%>%
     drop_na()
   return(sum(tableC$k_p_x*tableC$v))
 }
@@ -274,3 +285,23 @@ test2=GetGeneration(50,"H",TGH22,TGF22)
 a2=ai_x_n(test,50,20,0.01)
 print(a2)
 ```
+## Pour appliquer notre portefeuille, on va calculer les ratios de a. Il faut le faire pour tous les hommes et femmes entre 25 et 55 ans
+```{r}
+ratioH=rep(0,55-25+1)
+ratioF=rep(0,55-25+1)
+tx=0.005
+for (i in 1:31)
+{
+  my_age=24+i
+  n=65-my_age
+  H=GetGeneration(my_age,"H",TGH22,TGF22)
+  F=GetGeneration(my_age,"F",TGH22,TGF22)
+  aHtemp=ai_x_n(H,my_age,n,tx)
+  aFtemp=ai_x_n(F,my_age,n,tx)
+  aHdiff=s_ai_x(H,n,tx)
+  aFdiff=s_ai_x(F,n,tx)
+  ratioH[i]=aHtemp/aHdiff
+  ratioF[i]=aFtemp/aFdiff
+}
+```
+
