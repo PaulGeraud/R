@@ -1,0 +1,471 @@
+---
+title: "TD3"
+author: "Paul Géraud"
+date: "2024-02-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggforce)
+library(gridExtra)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exercice 6
+
+## Implémentation Van der Corput
+```{r}
+RepresBase_b=function(k,b)
+{
+  
+  if(k!=0)
+  {
+    #il faut obtenir le nombre de chiffres nécessaires pour écrire k en base b
+    nbr_chiffres=0
+    while(k>=b^nbr_chiffres)
+    {
+      nbr_chiffres=nbr_chiffres+1
+    }
+    #Créer liste coeffs
+    a_k=rep(0,nbr_chiffres)
+    for (i in nbr_chiffres:1)
+    {
+      a_k[i]=k%/%b^(i-1)
+      k=k-a_k[i]*b^(i-1)
+    }
+  }
+  else
+  {
+    a_k=0
+  }
+  return(a_k)
+}
+```
+Let's compute now the kth term of the Van der Corput serie
+```{r}
+Van_der_Corput_kth=function(k,b)
+{
+  #obtenir la représentation de k en base b
+  a=RepresBase_b(k,b)
+  VdC=0
+  for(i in 1:length(a))
+  {
+    VdC=VdC+a[i]/b^(i)  
+  }
+  return (VdC)
+}
+```
+Exemples
+```{r}
+Van_der_Corput_kth(4,2)
+```
+
+## Representation base b nombre suivant
+
+```{r}
+NombreSuivant=function(a,b)
+{
+  n=length(a)
+  for(i in n:1)
+  {
+    if(a[i]<b-1)
+    {
+      a[i]=a[i]+1
+      break;
+    }
+    else
+    {
+      a[i]=0
+      if(i-1!=0)
+      {
+        a[i-1]=a[i-1]+1
+        if(a[i-1]<=b-1)
+        {
+          break  
+        }
+      }
+      else
+      {
+        a=c(1,a)
+        break;
+      }
+      
+    }
+  }
+  return(a)
+}
+```
+
+```{r}
+k_first_VDC=function(k,b)
+{
+  vdc=rep(0,k)
+  num=NombreSuivant(0,b)
+  for(i in 1:k)
+  {
+    vdc[i]=Van_der_Corput_kth(num,b)
+    VdC=0
+    for(j in 1:length(num))
+    {
+      VdC=VdC+num[j]/b^(length(num)-j+1)  
+    }
+    vdc[i]=VdC
+    num=NombreSuivant(num,b)
+    #print(num)
+  }
+  return(vdc)
+}
+```
+
+
+
+```{r,warning=FALSE}
+#test=k_first_VDC(1000,2)
+#print(test)
+```
+## Application pour price Call Europeen
+```{r}
+QuasiMC_PriceCall=function(base,S_0,sigma,T,r,K,nbr_traj)
+{
+  seq=k_first_VDC(nbr_traj,base)
+  Z=qnorm(seq)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*Z*sqrt(T))
+  C_T=pmax(S_T-K,0)
+  return(mean(C_T))
+}
+```
+
+```{r,warning=FALSE}
+n=5000
+S_0=100
+sigma=0.2
+r=0.01
+T=0.5
+K=100
+QuasiMC_PriceCall(2,S_0,sigma,T,r,K,n)
+```
+## Randomised QMC and evaluate sd
+```{r}
+QuasiRMC_PriceCall=function(base,S_0,sigma,T,r,K,nbr_traj)
+{
+  u=runif(nbr_traj)
+  seq=k_first_VDC(nbr_traj,base)
+  Z=qnorm((seq+u)%%1)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*Z*sqrt(T))
+  C_T=pmax(S_T-K,0)
+  return(c(mean(C_T),sd(C_T)))
+}
+```
+
+```{r,warning=FALSE}
+QuasiRMC_PriceCall(2,S_0,sigma,T,r,K,n)[1]
+```
+## Standart deviation pour différentes valeurs de k
+```{r}
+Monte_Carlo_CallPrice=function(S_0,sigma,T,r,nbr_traj)
+{
+  Z=rnorm(nbr_traj)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*sqrt(T)*Z)
+  C_T=pmax(S_T-K,0)
+  return(c(mean(C_T),sd(C_T)))
+}
+```
+
+```{r,warning=FALSE}
+sdMC=rep(0,50)
+sdRMC=rep(0,50)
+for(k in 1:50)
+{
+  sdMC[k]=Monte_Carlo_CallPrice(S_0,sigma,T,r,k*100)[2]/sqrt(k)
+  sdRMC[k]=QuasiRMC_PriceCall(2,S_0,sigma,T,r,K,k*100)[2]/sqrt(k)
+}
+```
+
+
+```{r}
+df=data.frame(k=seq(100,5000,by=100),sd_MC=sdMC,sd_RMC=sdRMC)
+grid.arrange(
+  df%>%
+  ggplot(aes(x=log(k),y=log(sd_MC)))+geom_point(col="red")+
+  labs(title="Evolution of MC standart error based on number of points,\nlog scaled"),
+  df%>%
+  ggplot(aes(x=log(k),y=log(sd_RMC)))+geom_point(col="blue")+
+  labs(title="Evolution of RQMC standart error based on number of points,\nlog scaled"),
+  ncol=2
+)
+
+```
+# Halton Sequence
+
+Calcule le kieme terme suite de Halton(b1,b2)
+```{r}
+D2Halton_kth=function(k,b1,b2)
+{
+  return (c(Van_der_Corput_kth(k,b1),Van_der_Corput_kth(k,b2)))
+}
+```
+Calcule les k premiers termes de Halton
+```{r}
+k_first_Halton=function(k,b1,b2)
+{
+  c1=k_first_VDC(k,b1)
+  c2=k_first_VDC(k,b2)
+  return(matrix(c(c1,c2),nrow=2,byrow=TRUE))
+}
+```
+Générer 4 séquences de Halton différentes
+```{r,warning=FALSE}
+k=1000
+H1=k_first_Halton(k,2,3)
+H2=k_first_Halton(k,2,4)
+H3=k_first_Halton(k,2,113)
+H4=k_first_Halton(k,109,113)
+
+dfH=data.frame(h1x=H1[1,],h1y=H1[2,],h2x=H2[1,],h2y=H2[2,],h3x=H3[1,],h3y=H3[2,],h4x=H4[1,],h4y=H4[2,])
+```
+
+```{r}
+grid.arrange(
+  dfH%>%
+    ggplot(aes(h1x,y=h1y))+geom_point(col="red",alpha=0.7)+xlim(0,1)+ylim(0,1)+
+    labs(title="Suite de Halton(2,3)"),
+  dfH%>%
+    ggplot(aes(h2x,y=h2y))+geom_point(col="blue",alpha=0.7)+xlim(0,1)+ylim(0,1)+
+    labs(title="Suite de Halton(2,4)"),
+  dfH%>%
+    ggplot(aes(h3x,y=h3y))+geom_point(col="green",alpha=0.7)+xlim(0,1)+ylim(0,1)+
+    labs(title="Suite de Halton(2,113)"),
+  dfH%>%
+    ggplot(aes(h4x,y=h4y))+geom_point(col="purple",alpha=0.7)+xlim(0,1)+ylim(0,1)+
+    labs(title="Suite de Halton(109,113)"),
+  nrow=2,ncol=2
+)
+```
+* Halton(2,3) 2 et 3 premiers entre eux=>low discrepency. Marche bien
+* Halton(2,4) 2 et 4  ne sont pas premiers entre eux=> Ne marche pas du tout
+* Halton(2,113) 2 et 113 premiers entre eux=>low discrepency. Marche plutôt bien mais par rapport à Halton (2,3), les points sont moins bien répartis
+* Halton(109,113) 109 et 113 premiers entre eux=>low discrepency. En théorie pourrait marcher mais on voit bien sur ce graphique que il n'y a pas assez de points pour que cela soit pertinent.
+
+## Exchange option
+Une option (européenne) d'échange S1-S2 donne le droit à maturité t=T d'échanger S1 contre S2. Le payoff est donc de P=max(S2(T)-S1(T),0)
+
+## Simulation du prix de deux actifs corrélés & options échnange avec Monte Carlo
+
+### Simulation d'un 2D vecteur gaussien 
+On veut créer un 2D vecteur gaussien de matrice de corrélation [[1,rho],[rho,1]]
+
+On génère d'abbord deux lois normales indépendantes avec Box Muller
+```{r}
+Box_Muller=function(n)
+{
+  U_1=runif(n,0,1)
+  U_2=runif(n,0,1)
+  R=-2*log(U_1) #simule loi exponentielle
+  Theta=2*pi*U_2 #simule unif sur (0,2pi)
+  return(data.frame(N_1=sqrt(R)*cos(Theta),N_2=sqrt(R)*sin(Theta)))
+}
+
+```
+Créons maintenant un vecteur gaussien avec corrélation
+```{r}
+Dim2Gaussian=function(rho,sigma1,sigma2,n)
+{
+  if(abs(rho)>1||sigma1<=0||sigma2<=0)
+  {
+    print("Invalid arguments")
+    return(NaN)
+  }
+  else
+  {
+    BM=Box_Muller(n)
+    N1=BM$N_1
+    N2=BM$N_2
+    return(data.frame(N_1=sigma1*N1,
+                      N_2=sigma2*(rho*N1+sqrt(1-rho^2)*N2))
+           )
+  }
+}
+```
+Exemple:
+IID
+```{r}
+n=10^4
+G1=Box_Muller(n)
+G1%>%
+  ggplot(aes(x=N_1,y=N_2))+geom_point(col="blue")+
+  xlim(-3,3)+ylim(-3,3)+
+  labs(title="Scatter Plot de deux lois normales iid")
+```
+Avec Correl +0.5, sigma1=sigma2=1
+```{r}
+G2=Dim2Gaussian(0.5,1,1,n)
+G2%>%
+  ggplot(aes(x=N_1,y=N_2))+geom_point(col="red")+
+  xlim(-3,3)+ylim(-3,3)+
+  labs(title="Scatter Plot d'une gaussienne corrélée")
+```
+Sans prouver que c'est un vecteur gaussien, on observe bien que y a une corrélation positive entre N_1 et N_2
+
+Avec ceci, on peut désormais faire Monte Carlo pour 2 actifs corrélés
+
+```{r}
+Monte_Carlo2DPrice=function(S1_0,S2_0,sigma1,sigma2,rho,T,r,nbr_traj)
+{
+  G=Dim2Gaussian(rho,1,1,nbr_traj) #générer un vecteur gaussien corrélé
+  Z1=G$N_1
+  Z2=G$N_2
+  S1_T=S1_0*exp((r-sigma1^2/2)*T+sigma1*sqrt(T)*Z1)
+  S2_T=S2_0*exp((r-sigma2^2/2)*T+sigma2*sqrt(T)*Z2)
+  return(data.frame(S1_T=S1_T,S2_T=S2_T))
+}
+```
+Et donc on peut en déduire le prix estimé de l'option d'échange
+```{r}
+PricExchange=function(S1_T,S2_T)
+{
+  E_T=pmax(S2_T-S1_T,0)
+  return(c(mean(E_T),sd(E_T)/sqrt(length(S1_T))))
+}
+```
+
+Créons un scénario économique pour pricer:
+
+* S1 et S2 deux actifs avec une corrélation de 0.20
+* A t=0, S1=100 USD et S2= 95 USD
+* La maturité est de T= 0.5 ans
+* Le taux sans risque annuel est de 1%
+* La volatilé annuelle de S1 est de 18%, 25% pour S2
+
+Réalisons ce scénario avec 1 millions de tirages
+```{r}
+#hypothèses
+n=10^6
+S1_0=100
+S2_0=95
+T=0.5
+r=0.01
+sigma1=0.18
+sigma2=0.25
+rho=0.2
+#Simuler les prix
+S=Monte_Carlo2DPrice(S1_0,S2_0,sigma1,sigma2,rho,T,r,n)
+#Pricer l'option d'échange S2 contre S1
+E_T=PricExchange(S$S1_T,S$S2_T)
+cat("Prix de l'option: ",E_T[1],"Standart Error: ",E_T[2])
+```
+On peut changer les paramètres économiques pour évaluer et vérifier la cohérence de l'estimateur
+
+## Simulation du prix de deux actifs corrélés & options échnange avec QMC
+### QMC Classique
+On va utiliser une suite de Halton(base1,base2)
+```{r}
+QuasiMC_2DPrice=function(base1,base2,S1_0,S2_0,sigma1,sigma2,rho,T,r,nbr_traj)
+{
+  #générer suite de Halton
+  H=k_first_Halton(nbr_traj,base1,base2)
+  H1=H[1,]
+  H2=H[2,]
+  #2 lois normales pseudo aléatoires indépendant
+  Z1=qnorm(H1)
+  Z2=qnorm(H2)
+  #ajout de la corrélation
+  W1=Z1
+  W2=rho*Z1+sqrt(1-rho^2)*Z2
+  #evaluation des deux assets
+  S1_T=S1_0*exp((r-sigma1^2/2)*T+sigma1*sqrt(T)*W1)
+  S2_T=S2_0*exp((r-sigma2^2/2)*T+sigma2*sqrt(T)*W2)
+  return(data.frame(S1_T=S1_T,S2_T=S2_T))
+}
+```
+Application avec 2000 trajectoires, mêmes hypothèses économiques et une suite de Halton(2,3)
+```{r,warning=FALSE}
+#hypothèses
+n=2000
+S1_0=100
+S2_0=95
+T=0.5
+r=0.01
+sigma1=0.18
+sigma2=0.25
+rho=0.2
+#Simuler les prix
+S=QuasiMC_2DPrice(2,3,S1_0,S2_0,sigma1,sigma2,rho,T,r,n)
+#Pricer l'option d'échange S2 contre S1
+E_T=PricExchange(S$S1_T,S$S2_T)
+cat("Prix de l'option: ",E_T[1])
+```
+
+### RQMC
+
+```{r}
+QuasiRMC_2DPrice=function(base1,base2,S1_0,S2_0,sigma1,sigma2,rho,T,r,nbr_traj)
+{
+  #générer suite de Halton
+  H=k_first_Halton(nbr_traj,base1,base2)
+  H1=H[1,]
+  H2=H[2,]
+  #simulation de lois uniformes
+  u1=runif(nbr_traj)
+  u2=runif(nbr_traj)
+  #2 lois normales pseudo aléatoires indépendant
+  Z1=qnorm((H1+u1)%%1)
+  Z2=qnorm((H2+u2)%%1)
+  #ajout de la corrélation
+  W1=Z1
+  W2=rho*Z1+sqrt(1-rho^2)*Z2
+  #evaluation des deux assets
+  S1_T=S1_0*exp((r-sigma1^2/2)*T+sigma1*sqrt(T)*W1)
+  S2_T=S2_0*exp((r-sigma2^2/2)*T+sigma2*sqrt(T)*W2)
+  return(data.frame(S1_T=S1_T,S2_T=S2_T))
+}
+```
+Application
+```{r,warning=FALSE}
+#hypothèses
+n=2000
+S1_0=100
+S2_0=95
+T=0.5
+r=0.01
+sigma1=0.18
+sigma2=0.25
+rho=0.2
+#Simuler les prix
+S=QuasiRMC_2DPrice(2,3,S1_0,S2_0,sigma1,sigma2,rho,T,r,n)
+#Pricer l'option d'échange S2 contre S1
+E_T=PricExchange(S$S1_T,S$S2_T)
+cat("Prix de l'option: ",E_T[1],"Standart Error: ",E_T[2])
+```
+## evolution standart error selon k
+```{r,warning=FALSE}
+sdMC=rep(0,50)
+sdRMC=rep(0,50)
+for(k in 1:50)
+{
+  #Monte Carlo
+  S=Monte_Carlo2DPrice(S1_0,S2_0,sigma1,sigma2,rho,T,r,k)
+  sdMC[k]=PricExchange(S$S1_T,S$S2_T)[2]/sqrt(k)
+  #RQMC
+  S=QuasiRMC_2DPrice(2,3,S1_0,S2_0,sigma1,sigma2,rho,T,r,k)
+  sdRMC[k]=PricExchange(S$S1_T,S$S2_T)[2]/sqrt(k)
+}
+```
+
+
+```{r}
+df=data.frame(k=seq(100,5000,by=100),sd_MC=sdMC,sd_RMC=sdRMC)
+grid.arrange(
+  df%>%
+  ggplot(aes(x=log(k),y=log(sd_MC)))+geom_point(col="red")+
+  labs(title="Evolution of MC standart error based on number of points,\nlog scaled"),
+  df%>%
+  ggplot(aes(x=log(k),y=log(sd_RMC)))+geom_point(col="blue")+
+  labs(title="Evolution of RQMC standart error based on number of points,\nlog scaled"),
+  ncol=2
+)
+```

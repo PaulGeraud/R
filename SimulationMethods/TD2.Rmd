@@ -1,0 +1,281 @@
+---
+title: "TD2"
+author: "Paul Géraud"
+date: "2024-02-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggforce)
+library(gridExtra)
+```
+
+# Exercice 3
+
+Simulate prices
+```{r}
+#parameters
+Monte_Carlo_Price=function(S_0,sigma,T,r,nbr_traj)
+{
+  Z=rnorm(nbr_traj)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*sqrt(T)*Z)
+  return(S_T)
+}
+
+n=10^6
+S_0=100
+sigma=0.2
+r=0.01
+T=0.5
+S_T=Monte_Carlo_Price(S_0,sigma,T,r,n)
+```
+Average price
+```{r}
+mean(S_T)
+```
+Get Calls
+```{r}
+Price_Call=function(S_T,K)
+{
+  C_T=pmax(S_T-K,0)
+  return (C_T)
+}
+K=100
+C_T=Price_Call(S_T,K)
+```
+Mean Call price
+```{r}
+mean(C_T)
+```
+Now let's do it with Strikes being different multiple of S_0
+```{r}
+Ks=S_0*seq(from=0.5,to=1.3,by=0.1)
+Cs=rep(0,length.out=9)
+sdS=rep(0,length.out=9)
+for(i in 1:9)
+{
+  placeholder=Price_Call(S_T,Ks[i])
+  Cs[i]=mean(placeholder)
+  sdS[i]=sd(placeholder)/sqrt(n)
+}
+print(Cs)
+```
+```{r}
+print(sdS)
+```
+
+Get Confidence boundaries
+```{r}
+bound=qnorm(0.005)*exp(r*T)*(exp(T*sigma^2)-1)/sqrt(n)
+```
+
+Compare to Black Scholes formula
+```{r}
+d1s=(log(S_0/Ks)+(r+sigma^2/2)*T)/(sigma*sqrt(T))
+d2s=d1s-sigma*sqrt(T)
+C_BS=pnorm(d1s)*S_0-pnorm(d2s)*Ks*exp(-r*T)
+print(C_BS)
+```
+On retrouve des résultats similaires
+
+# Exercice 4
+
+## Controle variate method
+```{r}
+MonteCarlo_Control=function(S_0,sigma,T,r,K,nbr_traj)
+{
+  Z=rnorm(nbr_traj)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*sqrt(T)*Z)
+  C_T=pmax(S_T-K,0)
+  Beta=cov(S_T,C_T)/var(S_T)
+  Control_Ct=C_T-Beta*(S_T-mean(S_T))
+  return(Control_Ct)
+}
+```
+
+Let's do it again for a different range of strikes:
+```{r}
+Ks=S_0*seq(from=0.5,to=1.3,by=0.1)
+CsControl=rep(0,length.out=9)
+sdSControl=rep(0,length.out=9)
+for(i in 1:9)
+{
+  placeholder=MonteCarlo_Control(S_0,sigma,T,r,Ks[i],n)
+  CsControl[i]=mean(placeholder)
+  sdSControl[i]=sd(placeholder)/sqrt(n)
+}
+print(CsControl)
+```
+```{r}
+print(sdSControl)
+```
+We find similar results but we can observe indeed that the variance has been reduced
+
+## Importance sampling method
+
+```{r}
+drift=30 #valeur à modifier
+S_T_drift=S_T+drift
+plot(density(S_T_drift),ylim=c(0,0.5))
+#hist(S_T_drift,breaks=sqrt(length(S_T_drift)))
+# graphe payoff call strike K
+K=130
+t=seq(0,150,length.out=1000)
+c=pmax(t-K,0)
+lines(t,c,col="red")
+
+```
+Générons nos calls pour ce strike de 130 avec ce drift:
+```{r}
+C_T_importance=pmax(S_T_drift-K,0)
+cat("Moyenne: ",mean(C_T_importance),"\nEcart Type: ",sd(C_T_importance)/sqrt(n))
+```
+Résultats imparfaits. Il faut modifier quelque chose
+
+# Exercice 6
+
+## Implémentation Van der Corput
+```{r}
+RepresBase_b=function(k,b)
+{
+  
+  if(k!=0)
+  {
+    #il faut obtenir le nombre de chiffres nécessaires pour écrire k en base b
+    nbr_chiffres=0
+    while(k>=b^nbr_chiffres)
+    {
+      nbr_chiffres=nbr_chiffres+1
+    }
+    #Créer liste coeffs
+    a_k=rep(0,nbr_chiffres)
+    for (i in nbr_chiffres:1)
+    {
+      a_k[i]=k%/%b^(i-1)
+      k=k-a_k[i]*b^(i-1)
+    }
+  }
+  else
+  {
+    a_k=0
+  }
+  return(a_k)
+}
+```
+Let's compute now the kth term of the Van der Corput serie
+```{r}
+Van_der_Corput_kth=function(k,b)
+{
+  #obtenir la représentation de k en base b
+  a=RepresBase_b(k,b)
+  VdC=0
+  for(i in 1:length(a))
+  {
+    VdC=VdC+a[i]/b^(i)  
+  }
+  return (VdC)
+}
+```
+Exemples
+```{r}
+Van_der_Corput_kth(6,100)
+```
+
+## Representation base b nombre suivant
+
+```{r}
+NombreSuivant=function(a,b)
+{
+  n=length(a)
+  for(i in n:1)
+  {
+    if(a[i]<b-1)
+    {
+        a[i]=a[i]+1
+        break;
+    }
+    else
+    {
+      a[i]=0
+      if(i-1!=0)
+      {
+        a[i-1]=a[i-1]+1
+      }
+      else
+      {
+        a=c(1,a)
+      }
+      
+    }
+  }
+  return(a)
+}
+```
+
+##Calculer les premiers nombres sequences van der Corput
+```{r}
+k_first_VDC=function(k,b)
+{
+  vdc=rep(0,k)
+  num=NombreSuivant(0,b)
+  
+  for(i in 1:k)
+  {
+    vdc[i]=Van_der_Corput_kth(num,b)
+    VdC=0
+    for(j in 1:length(num))
+    {
+      VdC=VdC+num[j]/b^(length(num)-j+1)  
+    }
+    vdc[i]=VdC
+    num=NombreSuivant(num,b)
+    print(num)
+  }
+  return(vdc)
+}
+```
+
+
+
+```{r,warning=FALSE}
+test=k_first_VDC(20,2)
+print(test)
+```
+
+## Application Quasi Monte Carlo
+```{r}
+QuasiMC_Price=function(base,S_0,sigma,T,r,nbr_traj)
+{
+  seq=k_first_VDC(nbr_traj,base)
+  Z=qnorm(seq)
+  S_T=S_0*exp((r-sigma^2/2)*T+sigma*Z*sqrt(T))
+  return(S_T)
+}
+```
+
+```{r,warning=FALSE}
+n=1000
+S_0=100
+sigma=0.2
+r=0.01
+T=0.5
+K=100
+S_T=QuasiMC_Price(2,S_0,sigma,T,r,n)
+C_T=Price_Call(S_T,K)
+mean(C_T)
+
+
+```
+```{r}
+S_T=Monte_Carlo_Price(S_0,sigma,T,r,n)
+C_T=Price_Call(S_T,K)
+mean(C_T)
+```
+
+
+

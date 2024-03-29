@@ -1,0 +1,129 @@
+---
+title: "TD4"
+author: "Paul Géraud"
+date: "2024-03-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+```
+
+# Copules
+
+## Copule d'indépendance
+```{r}
+n=1000
+u1=runif(n)
+u2=runif(n)
+z=u1*u2
+df=data.frame(u1=u1,u2=u2,z=z)
+df%>%
+  ggplot(aes(x=u1,y=u2))+geom_density_2d(col="blue")+
+  labs(title="densité estimée de la copule d'indépendance")
+
+```
+```{r}
+#z=outer(u1,u2)
+#persp(x=seq(0,1,length.out=nrow(z)),y=seq(0,1,length.out=nrow(z)),z=z)
+```
+
+## Copule de comonocité
+```{r}
+u1=runif(n)
+u2=u1
+df=data.frame(u1=u1,u2=u2)
+df%>%
+  ggplot(aes(x=u1,y=u2))+geom_density_2d(col="blue")+
+  labs(title="densité estimée de la copule de comonocité")
+```
+
+## Copule de contre monocité
+
+```{r}
+u1=runif(n)
+u2=u1
+df=data.frame(u1=u1,u2=u2)
+df%>%
+  ggplot(aes(x=u1,y=u2))+geom_density_2d(col="blue")+
+  labs(title="densité estimée de la copule de comonotonicité")
+```
+## Copule de contre monocité
+```{r}
+u1=runif(n)
+u2=1-u1
+df=data.frame(u1=u1,u2=u2)
+df%>%
+  ggplot(aes(x=u1,y=u2))+geom_density_2d(col="blue")+
+  labs(title="densité estimée de la copule de contre monotonicité")
+```
+
+## Algorithme de dichotomie
+
+```{r}
+BissectionMethod=function(x_1,x_2,n_max=1000,epsilon=10^-8,u1,theta)
+{
+  x=(x_1+x_2)/2
+  n=0
+  while (abs(x_2-x_1)/(2*abs(x))>epsilon&&n<n_max)
+  {
+    if(f(u1,x_1,theta)*f(u1,x,theta)<0)
+    {
+      x_2=x    
+    }
+    else
+    {
+      if(f(u1,x,theta)*f(u1,x_2,theta)<0)
+      {
+        x_1=x
+      }      
+    }
+    x=(x_1+x_2)/2
+    n=n+1
+  }
+  return (x)
+}
+```
+Test dicho
+```{r}
+f=function(x)
+{
+  return( x^3+x^2-3*x-3)
+}
+    
+```
+```{r}
+r=BissectionMethod(-1.5,1,2000)
+```
+
+## Copule de Clayton
+
+### Formules
+```{r}
+Clayon=function(u1,u2,theta)
+{
+  return((u1^(-theta)+u2^(-theta)-1)^(-1/theta))
+}
+
+derClayton_u1=function(u1,u2,theta)
+{
+ return(u1^(-theta-1)*(u1^(-theta)+u2^(-theta)-1)^(-(theta+1)/theta)) 
+}
+```
+
+### Sampling
+```{r,warning=FALSE}
+theta=1
+n=100
+u1=runif(n)
+f=function(u1,u2,theta)
+{
+  return(derClayton_u1(u1,u2,theta)-u2)  
+}
+u2=rep(0,n)
+for(i in 1:n)
+{
+  u2[i]=BissectionMethod(0,1,1000,10^-8,u1[1],theta)
+}
+
+```
